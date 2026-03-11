@@ -144,11 +144,11 @@ input:focus{border-color:var(--accent)} input::placeholder{color:var(--dim)}
     <div id="v-welcome" class="view" style="display:flex">
       <div class="wicon">🌙</div>
       <div class="wtitle">Moonlight Web Proxy</div>
-      <div class="wsub">Full HTTP + WebSocket reverse proxy for moonlight-web-stream.</div>
+      <div class="wsub">Pure WebSocket proxy — stream HTML and all assets are fetched via WS, bundled inline, then written to a blob iframe.</div>
       <div class="steps">
         <div class="step"><div class="snum">1</div><span>Run <b>node proxy-server.js</b> locally</span></div>
         <div class="step"><div class="snum">2</div><span>Enter server URL (e.g. <b>moon.example.com</b>)</span></div>
-        <div class="step"><div class="snum">3</div><span>Connect → login → pick host → pick app → stream loads in real iframe (no blob URL)</span></div>
+        <div class="step"><div class="snum">3</div><span>Connect → login → pick host → pick app. Scripts are fetched via WS and bundled before the stream starts.</span></div>
       </div>
     </div>
 
@@ -187,6 +187,7 @@ input:focus{border-color:var(--accent)} input::placeholder{color:var(--dim)}
     <div id="v-stream" class="view hidden">
       <div id="stream-bar">
         <div id="stream-label">Streaming: <span id="stream-app-name">—</span></div>
+        <span id="stream-status" style="font-size:10px;color:var(--amber)"></span>
         <button class="btn btn-g" onclick="stopStream()">✕ Stop</button>
         <button class="btn btn-g" onclick="goFS()">⛶ Fullscreen</button>
       </div>
@@ -229,7 +230,6 @@ const $ = id => document.getElementById(id);
 
 let ws       = null;
 let target   = '';
-let proxyHttp= '';   // e.g. "http://localhost:8765"
 let rid      = 0;
 let reqs     = 0;
 let pending  = {};
@@ -279,10 +279,6 @@ function doConnect() {
   if (!ctrlUrl || !tgt) return;
   if (!tgt.startsWith('http')) tgt = 'https://' + tgt;
   target = tgt;
-
-  // Derive the HTTP proxy base from the WS control URL
-  proxyHttp = ctrlUrl.replace(/^wss?:\/\//, 'http://').replace(/\/proxy-control.*$/, '');
-
   setStatus('conn','Connecting…');
   $('btn-connect').disabled = true;
   log(`connecting → ${ctrlUrl}`, 'info');
@@ -342,6 +338,20 @@ function handleMsg(msg) {
       msg.error ? p.rej(new Error(msg.error)) : p.res(msg);
       break;
     }
+    // ── Stream WS relay → iframe shim ──────────────────────────────────
+    case 'stream_ws_open':
+      framePost({ __mlp:true, type:'stream_ws_open' });
+      break;
+    case 'stream_ws_message':
+      framePost({ __mlp:true, type:'stream_ws_message', data:msg.data, binary:msg.binary });
+      break;
+    case 'stream_ws_closed':
+      framePost({ __mlp:true, type:'stream_ws_closed', code:msg.code });
+      break;
+    case 'stream_ws_error':
+      log(`stream WS error: ${msg.message}`,'err');
+      framePost({ __mlp:true, type:'stream_ws_error', message:msg.message });
+      break;
     case 'error':
       log(`proxy: ${msg.message}`,'err');
       break;
@@ -470,36 +480,318 @@ async function loadAppImage(appId, hostId) {
   } catch {}
 }
 
+// ── postMessage relay: parent window ↔ iframe shim ───────────────────────
+let _streamFrame = null;
+function framePost(obj) {
+  if (_streamFrame && _streamFrame.contentWindow)
+    _streamFrame.contentWindow.postMessage(obj, '*');
+}
+window.addEventListener('message', e => {
+  const d = e.data;
+  if (!d || !d.__mlp) return;
+  switch (d.type) {
+    case 'request':
+      apiCall(d.url, d.method, d.headers, d.body)
+        .then(r  => framePost({ __mlp:true, type:'response', id:d.id,
+                                status:r.status, headers:r.headers,
+                                body:r.body, encoding:r.encoding }))
+        .catch(er => framePost({ __mlp:true, type:'response', id:d.id, error:er.message }));
+      break;
+    case 'stream_ws_open':
+      pSend({ type:'stream_ws_open', url:d.url, protocols:d.protocols||[] });
+      break;
+    case 'stream_ws_send':
+      pSend({ type:'stream_ws_send', data:d.data, binary:d.binary||false });
+      break;
+    case 'stream_ws_close':
+      pSend({ type:'stream_ws_close' });
+      break;
+  }
+});
+
+// ── Parent-side ES module bundler (runs in this window via apiCall) ───────
+const _pbCache = {};
+async function _pbFetch(url) {
+  if (_pbCache[url] !== undefined) return _pbCache[url];
+  try {
+    const r = await apiCall(url, 'GET', { accept:'text/javascript' }, null);
+    _pbCache[url] = r.status === 200 ? (r.body || '') : '';
+  } catch { _pbCache[url] = ''; }
+  return _pbCache[url];
+}
+function _pbResolve(imp, fromUrl) {
+  if (/^https?:\/\//.test(imp)) return imp;
+  if (imp.startsWith('/')) return target + imp;
+  const base = fromUrl.slice(0, fromUrl.lastIndexOf('/') + 1);
+  return (base + imp).split('/').reduce((a, p) => {
+    if (p === '..') a.pop(); else if (p !== '.') a.push(p); return a;
+  }, []).join('/');
+}
+function _pbImports(src) {
+  const re = /\bimport\b[^'"`]*?['"`]([^'"`]+)['"`]/g, out = []; let m;
+  while ((m = re.exec(src)) !== null)
+    if (!m[1].startsWith('data:') && !m[1].startsWith('blob:')) out.push(m[1]);
+  return out;
+}
+async function _pbCollect(url, order, seen) {
+  if (seen.has(url)) return; seen.add(url);
+  const src = await _pbFetch(url);
+  for (const i of _pbImports(src)) await _pbCollect(_pbResolve(i, url), order, seen);
+  order.push({ url, src });
+}
+function _pbXform(src) {
+  const aliases = [];
+  const ar = /\bimport\s+\{([^}]+)\}\s+from\s+['"][^'"]+['"]/g; let m;
+  while ((m = ar.exec(src)) !== null)
+    for (const s of m[1].split(',')) {
+      const p = s.trim().split(/\s+as\s+/);
+      if (p.length === 2) aliases.push(`var ${p[1].trim()}=(typeof ${p[0].trim()}!=='undefined'?${p[0].trim()}:undefined);`);
+    }
+  let o = src.replace(/^import\b.*?(?:from\s*)?['"][^'"]*['"]\s*;?[ \t]*\r?\n?/gm, '');
+  o = o.replace(/\bexport\s+default\s+/g, '');
+  o = o.replace(/\bexport\s*\{[^}]*\}(?:\s*from\s*['"][^'"]*['"])?\s*;?[ \t]*\r?\n?/gm, '');
+  o = o.replace(/\bexport\s+((?:async\s+)?(?:function\*?|class|const|let|var))\s+/g, '$1 ');
+  return (aliases.length ? aliases.join('\n')+'\n' : '') + o;
+}
+async function bundleGraph(entryUrl) {
+  const order = [], seen = new Set();
+  await _pbCollect(entryUrl, order, seen);
+  return '(function(){\n"use strict";\n' +
+    order.map(({url,src}) => `\n/* ${url.split('/').pop()} */\n` + _pbXform(src)).join('\n') +
+    '\n})();\n';
+}
+
 // ── Stream ────────────────────────────────────────────────────────────────
-// KEY CHANGE FROM v3:
-// Instead of fetching the HTML, injecting a shim, and writing a blob URL,
-// we simply point the iframe at the HTTP proxy directly:
-//   http://localhost:8765/stream.html?hostId=X&appId=Y
-//
-// The proxy serves all assets. Workers import from http://localhost:8765/...
-// which resolves correctly. The WebSocket /api/host/stream is handled by
-// the proxy's WS upgrade bridge. Zero shim needed.
-function startStream(host, app) {
+async function startStream(host, app) {
   currentApp = app;
-  $('i-app').textContent = app.title;
+  $('i-app').textContent          = app.title;
   $('stream-app-name').textContent = app.title;
   show('stream');
-  log(`streaming: ${app.title} on ${host.name}`,'info');
+  _streamFrame = $('stream-frame');
+  log(`streaming: ${app.title} on ${host.name}`, 'info');
 
-  const streamUrl = `${proxyHttp}/stream.html?hostId=${host.host_id}&appId=${app.app_id}`;
-  log(`iframe → ${streamUrl}`,'info');
-  $('stream-frame').src = streamUrl;
-  log('stream frame loading (Web Workers will resolve imports correctly)','ok');
+  const setS = t => { $('stream-status').textContent = t; };
+  setS('Fetching…');
+
+  try {
+    // 1. Fetch stream.html via WS
+    const hr = await apiCall(
+      `${target}/stream.html?hostId=${host.host_id}&appId=${app.app_id}`,
+      'GET', { accept:'text/html' }, null
+    );
+    if (hr.status !== 200) { log(`stream.html HTTP ${hr.status}`, 'err'); setS(''); return; }
+    let html = hr.body;
+
+    // 2. Find every <script type="module" src="..."> and bundle inline
+    const modRe = /<script\b[^>]*\btype=["']module["'][^>]*\bsrc=["']([^"']+)["'][^>]*>\s*<\/script>|<script\b[^>]*\bsrc=["']([^"']+)["'][^>]*\btype=["']module["'][^>]*>\s*<\/script>/gi;
+    const patches = [];
+    let m;
+    while ((m = modRe.exec(html)) !== null) {
+      const rel = m[1] || m[2];
+      const abs = /^https?:/.test(rel) ? rel : target + (rel.startsWith('/') ? rel : '/' + rel.replace(/^\.\//, ''));
+      log(`bundling ${rel.split('/').pop()}…`);
+      setS(`Bundling ${rel.split('/').pop()}…`);
+      patches.push({ tag: m[0], bundled: await bundleGraph(abs) });
+    }
+    for (const { tag, bundled } of patches)
+      html = html.replace(tag, `<script>\n${bundled}\n</script>`);
+
+    // Strip type="module" from any remaining inline scripts
+    html = html.replace(/<script([^>]*)\btype=["']module["']([^>]*)>/g, '<script$1$2>');
+
+    // 3. Inject shim as first thing in <head>
+    const shim    = buildShim(host, app);
+    const headPos = html.toLowerCase().indexOf('<head>');
+    const shimTag = `<script>\n${shim}\n</script>\n`;
+    html = headPos !== -1
+      ? html.slice(0, headPos + 6) + shimTag + html.slice(headPos + 6)
+      : shimTag + html;
+
+    // 4. Blob → iframe
+    setS('');
+    const blobUrl = URL.createObjectURL(new Blob([html], { type:'text/html' }));
+    _streamFrame.src = blobUrl;
+    log('stream frame loaded — all assets fetched via WS', 'ok');
+
+  } catch (err) {
+    log(`stream error: ${err.message}`, 'err');
+    setS('');
+  }
 }
 
 function stopStream() {
+  pSend({ type:'stream_ws_close' });
   $('stream-frame').src = 'about:blank';
+  $('stream-status').textContent = '';
   loadHosts();
 }
 
 function goFS() {
   const f = $('stream-frame');
   (f.requestFullscreen || f.webkitRequestFullscreen || f.mozRequestFullScreen).call(f);
+}
+
+// ── Iframe shim (injected into the blob-URL stream iframe) ────────────────
+// Overrides fetch, XHR, WebSocket, and Worker so every network call is
+// tunnelled through postMessage → parent → WS proxy. No direct HTTP.
+function buildShim(host, app) {
+  return `(function(){
+'use strict';
+const BASE      = ${JSON.stringify(target)};
+const HOST_ID   = ${JSON.stringify(String(host.host_id))};
+const APP_ID    = ${JSON.stringify(String(app.app_id))};
+
+// 1. URLSearchParams: blob URL has no query string — inject ids
+const _USP = window.URLSearchParams;
+window.URLSearchParams = function(init) {
+  return new _USP(!init ? 'hostId='+HOST_ID+'&appId='+APP_ID : init);
+};
+Object.assign(window.URLSearchParams, _USP);
+
+// 2. Resolve URLs (location.origin === "null" in blob context)
+function abs(u) {
+  if (!u) return u;
+  if (u.startsWith('null/')) return BASE+'/'+u.slice(5);
+  if (u.startsWith('null'))  return BASE+u.slice(4);
+  if (/^https?:/.test(u))    return u;
+  if (u.startsWith('//'))    return 'https:'+u;
+  if (u.startsWith('/'))     return BASE+u;
+  return BASE+'/'+u;
+}
+
+// 3. postMessage channel to parent
+let _rid = 0;
+const _pend = {};
+window.addEventListener('message', e => {
+  const d = e.data; if (!d||!d.__mlp) return;
+  switch(d.type) {
+    case 'response': { const p=_pend[d.id]; if(!p) return; delete _pend[d.id]; d.error?p.rej(new Error(d.error)):p.res(d); break; }
+    case 'stream_ws_open':    _wsd('open',null);           break;
+    case 'stream_ws_message': _wsd('message',d.data,d.binary); break;
+    case 'stream_ws_closed':  _wsd('close',d.code);        break;
+    case 'stream_ws_error':   _wsd('error',d.message);     break;
+  }
+});
+function _req(url,method,headers,body){
+  return new Promise((res,rej)=>{
+    const id='s'+(++_rid); _pend[id]={res,rej};
+    parent.postMessage({__mlp:true,type:'request',id,url:abs(url),method,headers,body},'*');
+    setTimeout(()=>{ if(_pend[id]){delete _pend[id];rej(new Error('shim timeout'));} },30000);
+  });
+}
+
+// 4. fetch
+window.fetch = async function(input,init){
+  init=init||{};
+  const u=abs(typeof input==='string'?input:(input.url||''));
+  const m=(init.method||(input&&input.method)||'GET').toUpperCase();
+  let h={};
+  if(init.headers){ const ih=init.headers; h=typeof ih.entries==='function'?Object.fromEntries(ih.entries()):Array.isArray(ih)?Object.fromEntries(ih):Object.assign({},ih); }
+  let b=null;
+  if(init.body!=null) b=typeof init.body==='string'?init.body:init.body instanceof URLSearchParams?init.body.toString():null;
+  const r=await _req(u,m,h,b);
+  let rb;
+  if(r.encoding==='base64'&&r.body){ const bi=atob(r.body),ar=new Uint8Array(bi.length); for(let i=0;i<bi.length;i++)ar[i]=bi.charCodeAt(i); rb=ar.buffer; } else rb=r.body||'';
+  const rh={};
+  for(const[k,v] of Object.entries(r.headers||{})){ const kl=k.toLowerCase(); if(kl==='content-encoding'||kl==='transfer-encoding')continue; rh[k]=Array.isArray(v)?v.join(', '):v; }
+  return new Response(rb,{status:r.status,headers:rh});
+};
+
+// 5. XMLHttpRequest
+window.XMLHttpRequest=function(){
+  let _m,_u,_h={};
+  const f={readyState:0,status:0,statusText:'',responseText:'',response:null,
+    onreadystatechange:null,onload:null,onerror:null,withCredentials:false,responseType:'',
+    open(m,u){_m=m;_u=abs(u);f.readyState=1;},
+    setRequestHeader(k,v){_h[k]=v;},
+    send(body){
+      const b=body==null?null:typeof body==='string'?body:body instanceof URLSearchParams?body.toString():null;
+      _req(_u,_m,_h,b).then(r=>{
+        f.status=r.status;f.statusText='OK';f.responseText=r.body||'';f.response=r.body||'';f.readyState=4;
+        if(f.onreadystatechange)f.onreadystatechange();if(f.onload)f.onload({target:f});
+      }).catch(err=>{if(f.onerror)f.onerror(err);});
+    },
+    abort(){},getResponseHeader(){return null;},getAllResponseHeaders(){return '';},
+    overrideMimeType(){},
+    addEventListener(ev,fn){f['on'+ev]=fn;},removeEventListener(){},
+  };return f;
+};
+
+// 6. WebSocket
+const _wsE={};
+function _wsd(ev,data,binary){
+  (_wsE[ev]||[]).forEach(fn=>{
+    if(ev==='message'){
+      let p;
+      if(binary&&data){const bi=atob(data),ar=new Uint8Array(bi.length);for(let i=0;i<bi.length;i++)ar[i]=bi.charCodeAt(i);p=ar.buffer;}else p=data;
+      fn({data:p});
+    } else if(ev==='open') fn({type:'open'});
+    else if(ev==='close') fn({type:'close',code:data});
+    else fn({type:ev,message:data});
+  });
+}
+window.WebSocket=function(wsUrl,protocols){
+  const full=wsUrl.startsWith('ws')?wsUrl:BASE.replace(/^https?/,p=>p.replace('http','ws'))+(wsUrl.startsWith('/')?wsUrl:'/'+wsUrl);
+  parent.postMessage({__mlp:true,type:'stream_ws_open',url:full,protocols:protocols||[]},'*');
+  const fake={url:full,readyState:0,CONNECTING:0,OPEN:1,CLOSING:2,CLOSED:3,binaryType:'arraybuffer',
+    onopen:null,onmessage:null,onclose:null,onerror:null,
+    send(data){
+      if(data instanceof ArrayBuffer||ArrayBuffer.isView(data)){
+        const ar=new Uint8Array(data instanceof ArrayBuffer?data:data.buffer);
+        let b='';for(let i=0;i<ar.length;i++)b+=String.fromCharCode(ar[i]);
+        parent.postMessage({__mlp:true,type:'stream_ws_send',data:btoa(b),binary:true},'*');
+      } else parent.postMessage({__mlp:true,type:'stream_ws_send',data:String(data),binary:false},'*');
+    },
+    close(){parent.postMessage({__mlp:true,type:'stream_ws_close'},'*');},
+    addEventListener(ev,fn){(_wsE[ev]||(_wsE[ev]=[])).push(fn);},
+    removeEventListener(ev,fn){if(_wsE[ev])_wsE[ev]=_wsE[ev].filter(f=>f!==fn);},
+  };
+  _wsE.open   =[e=>{fake.readyState=1;if(fake.onopen)fake.onopen(e);}];
+  _wsE.message=[e=>{if(fake.onmessage)fake.onmessage(e);}];
+  _wsE.close  =[e=>{fake.readyState=3;if(fake.onclose)fake.onclose(e);}];
+  _wsE.error  =[e=>{if(fake.onerror)fake.onerror(e);}];
+  return fake;
+};
+window.WebSocket.CONNECTING=0;window.WebSocket.OPEN=1;window.WebSocket.CLOSING=2;window.WebSocket.CLOSED=3;
+
+// 7. Worker — bundle ES module graph via _req, create classic blob Worker
+const _NW=window.Worker, _wc={};
+async function _wFetch(url){ if(_wc[url]!==undefined)return _wc[url]; try{const r=await _req(url,'GET',{accept:'text/javascript'},null);_wc[url]=r.body||'';}catch{_wc[url]='';} return _wc[url]; }
+function _wRes(imp,from){ if(/^https?:/.test(imp))return imp; if(imp.startsWith('/'))return BASE+imp; const b=from.slice(0,from.lastIndexOf('/')+1); return(b+imp).split('/').reduce((a,p)=>{if(p==='..')a.pop();else if(p!=='.')a.push(p);return a;},[]).join('/'); }
+function _wImp(src){ const re=/\bimport\b[^'"]*?['"]([^'"]+)['"]/g,o=[];let m;while((m=re.exec(src))!==null)if(!m[1].startsWith('data:')&&!m[1].startsWith('blob:'))o.push(m[1]);return o; }
+async function _wCol(url,ord,seen){ if(seen.has(url))return;seen.add(url);const src=await _wFetch(url);for(const i of _wImp(src))await _wCol(_wRes(i,url),ord,seen);ord.push({url,src}); }
+function _wXf(src){
+  const al=[];const ar=/\bimport\s+\{([^}]+)\}\s+from\s+['"][^'"]+['"]/g;let m;
+  while((m=ar.exec(src))!==null)for(const s of m[1].split(',')){ const p=s.trim().split(/\s+as\s+/);if(p.length===2)al.push('var '+p[1].trim()+'=(typeof '+p[0].trim()+'!==\'undefined\'?'+p[0].trim()+':undefined);'); }
+  let o=src.replace(/^import\b.*?(?:from\s*)?['"][^'"]*['"]\s*;?[ \t]*\r?\n?/gm,'');
+  o=o.replace(/\bexport\s+default\s+/g,'');
+  o=o.replace(/\bexport\s*\{[^}]*\}(?:\s*from\s*['"][^'"]*['"])?\s*;?[ \t]*\r?\n?/gm,'');
+  o=o.replace(/\bexport\s+((?:async\s+)?(?:function\*?|class|const|let|var))\s+/g,'$1 ');
+  return(al.length?al.join('\n')+'\n':'')+o;
+}
+async function _wBundle(entry){ const ord=[],seen=new Set();await _wCol(entry,ord,seen);return '(function(){\n"use strict";\n'+ord.map(({url,src})=>'\n/* '+url.split('/').pop()+' */\n'+_wXf(src)).join('\n')+'\n})();\n'; }
+function _wAbs(u){ if(/^https?:/.test(u))return u;if(u.startsWith('/'))return BASE+u;return BASE+'/'+u.replace(/^\.\//,''); }
+window.Worker=function WorkerProxy(src,opts){
+  if(!opts||opts.type!=='module')return new _NW(src,opts);
+  const entry=_wAbs(src),q=[],evts={};let nw=null,_om=null,_oe=null;
+  const proxy={
+    get onmessage(){return _om;},set onmessage(fn){_om=fn;if(nw)nw.onmessage=fn;},
+    get onerror(){return _oe;},set onerror(fn){_oe=fn;if(nw)nw.onerror=fn;},
+    postMessage(data,t){if(nw)nw.postMessage(data,t||[]);else q.push({data,t});},
+    terminate(){if(nw)nw.terminate();},
+    addEventListener(t,fn){(evts[t]||(evts[t]=[])).push(fn);if(nw)nw.addEventListener(t,fn);},
+    removeEventListener(t,fn){if(evts[t])evts[t]=evts[t].filter(f=>f!==fn);if(nw)nw.removeEventListener(t,fn);},
+  };
+  _wBundle(entry).then(b=>{
+    nw=new _NW(URL.createObjectURL(new Blob([b],{type:'text/javascript'})));
+    if(_om)nw.onmessage=_om;if(_oe)nw.onerror=_oe;
+    for(const[t,fns]of Object.entries(evts))for(const fn of fns)nw.addEventListener(t,fn);
+    for(const{data,t}of q)nw.postMessage(data,t||[]);
+  }).catch(err=>{ if(_oe)_oe(new ErrorEvent('error',{message:err.message})); });
+  return proxy;
+};
+console.log('[shim v5] active  target='+BASE+'  host='+HOST_ID+'  app='+APP_ID);
+})();`;
 }
 
 // ── Wiring ────────────────────────────────────────────────────────────────

@@ -124,74 +124,24 @@ function proxyHttp(reqUrl, method, reqHeaders, body) {
   });
 }
 
-// ── HTTP server ────────────────────────────────────────────────────────────
-const httpServer = http.createServer(async (req, res) => {
-  // ── OPTIONS preflight (for file:// CORS if needed) ──────────────────────
+// ── HTTP server (health check only — all data goes through WS) ────────────
+const httpServer = http.createServer((req, res) => {
   res.setHeader("Access-Control-Allow-Origin",  "*");
-  res.setHeader("Access-Control-Allow-Methods", "GET,POST,PUT,DELETE,OPTIONS");
+  res.setHeader("Access-Control-Allow-Methods", "GET,OPTIONS");
   res.setHeader("Access-Control-Allow-Headers", "*");
   if (req.method === "OPTIONS") { res.writeHead(204); res.end(); return; }
 
-  // ── Health check ────────────────────────────────────────────────────────
   if (req.url === "/proxy-health") {
     res.writeHead(200, { "Content-Type": "application/json" });
-    res.end(JSON.stringify({ status: "ok", version: "4.0.0", target: targetOrigin }));
+    res.end(JSON.stringify({ status: "ok", version: "5.0.0", target: targetOrigin }));
     return;
   }
 
-  // ── Must have a target set ───────────────────────────────────────────────
-  if (!targetOrigin) {
-    res.writeHead(503, { "Content-Type": "text/plain" });
-    res.end("Proxy not configured — connect via the control WebSocket first");
-    return;
-  }
-
-  // ── Collect request body ─────────────────────────────────────────────────
-  const bodyChunks = [];
-  req.on("data", c => bodyChunks.push(c));
-  await new Promise(r => req.on("end", r));
-  const bodyBuf = bodyChunks.length ? Buffer.concat(bodyChunks) : null;
-
-  // ── Build target URL ─────────────────────────────────────────────────────
-  const targetUrl = targetOrigin + req.url;
-  console.log(`[HTTP] ${req.method.padEnd(6)} ${req.url}`);
-
-  try {
-    const r = await proxyHttp(targetUrl, req.method, req.headers, bodyBuf);
-
-    // Build response headers — strip problematic ones, rewrite Set-Cookie
-    const respHeaders = {};
-    for (const [k, v] of Object.entries(r.headers)) {
-      const kl = k.toLowerCase();
-      if (kl === "content-encoding") continue; // we forced identity
-      if (kl === "strict-transport-security") continue;
-      if (kl === "set-cookie") {
-        // Rewrite cookie: drop SameSite=Strict (would block cross-site) and
-        // change domain to localhost so the browser accepts it
-        const cookies = Array.isArray(v) ? v : [v];
-        const rewritten = cookies.map(c =>
-          c.replace(/;\s*SameSite=[^;]*/gi, "; SameSite=Lax")
-           .replace(/;\s*Secure/gi, "")  // not https on localhost
-           .replace(/;\s*Domain=[^;]*/gi, "")
-        );
-        respHeaders["set-cookie"] = rewritten;
-        continue;
-      }
-      respHeaders[k] = v;
-    }
-
-    res.writeHead(r.status, respHeaders);
-    res.end(r.body);
-  } catch (err) {
-    console.error(`[HTTP] proxy error: ${err.message}`);
-    if (!res.headersSent) {
-      res.writeHead(502, { "Content-Type": "text/plain" });
-      res.end(`Proxy error: ${err.message}`);
-    }
-  }
+  res.writeHead(503, { "Content-Type": "text/plain" });
+  res.end("All traffic goes through ws://localhost:" + PORT + CONTROL_PATH + "\n");
 });
 
-// ── WebSocket server (handles both control channel + stream WS) ───────────
+// ── WebSocket server (control channel only) ───────────────────────────────
 const wss = new WebSocketServer({ noServer: true });
 
 // WS control channel connections (from client.html)
@@ -199,57 +149,12 @@ const controlClients = new Set();
 
 httpServer.on("upgrade", (req, socket, head) => {
   const pathname = url.parse(req.url).pathname;
-
   if (pathname === CONTROL_PATH) {
-    // ── Control channel ──────────────────────────────────────────────────
     wss.handleUpgrade(req, socket, head, ws => {
       wss.emit("connection", ws, req);
     });
   } else {
-    // ── Upstream WS bridge (e.g. /api/host/stream) ──────────────────────
-    if (!targetOrigin) {
-      socket.destroy();
-      return;
-    }
-    const wsUrl = targetOrigin.replace(/^https?:/, p => p.replace("http","ws")) + req.url;
-    console.log(`[WS↑] bridging → ${wsUrl}`);
-
-    const jar = cookieHeader();
-    const upstream = new WebSocket(wsUrl, [], {
-      rejectUnauthorized: false,
-      headers: {
-        "cookie": jar,
-        "origin": targetOrigin,
-      },
-    });
-
-    upstream.on("open", () => {
-      console.log(`[WS↑] open`);
-      // Complete the upgrade on the client side
-      wss.handleUpgrade(req, socket, head, clientWs => {
-        // Pipe both directions
-        clientWs.on("message", (data, isBinary) => {
-          if (upstream.readyState === WebSocket.OPEN)
-            upstream.send(data, { binary: isBinary });
-        });
-        upstream.on("message", (data, isBinary) => {
-          if (clientWs.readyState === WebSocket.OPEN)
-            clientWs.send(data, { binary: isBinary });
-        });
-        clientWs.on("close", () => upstream.close());
-        upstream.on("close", () => clientWs.close());
-        clientWs.on("error", () => upstream.close());
-        upstream.on("error", err => {
-          console.error(`[WS↑] upstream error: ${err.message}`);
-          clientWs.close();
-        });
-      });
-    });
-
-    upstream.on("error", err => {
-      console.error(`[WS↑] connect error: ${err.message}`);
-      socket.destroy();
-    });
+    socket.destroy();
   }
 });
 
@@ -259,12 +164,44 @@ wss.on("connection", (clientWs, req) => {
   console.log(`[+] control client  ${ip}`);
   controlClients.add(clientWs);
 
-  let pingTimer = null;
-  let pingTs    = 0;
+  let pingTimer  = null;
+  let streamWs   = null;   // upstream /api/host/stream WebSocket
 
   function send(obj) {
     if (clientWs.readyState === WebSocket.OPEN)
       clientWs.send(JSON.stringify(obj));
+  }
+
+  // ── Upstream stream WS ─────────────────────────────────────────────────
+  function openStreamWs(wsUrl, protocols) {
+    if (streamWs) { streamWs.close(); streamWs = null; }
+    console.log(`[WS↑] → ${wsUrl}`);
+    const jar = cookieHeader();
+    const upstream = new WebSocket(wsUrl, protocols || [], {
+      rejectUnauthorized: false,
+      headers: { cookie: jar, origin: targetOrigin },
+    });
+    upstream.on("open", () => {
+      console.log(`[WS↑] open`);
+      send({ type: "stream_ws_open" });
+    });
+    upstream.on("message", (data, isBinary) => {
+      send({
+        type:   "stream_ws_message",
+        data:   isBinary ? data.toString("base64") : data.toString("utf8"),
+        binary: isBinary,
+      });
+    });
+    upstream.on("close", (code, reason) => {
+      console.log(`[WS↑] closed ${code}`);
+      send({ type: "stream_ws_closed", code, reason: reason.toString() });
+      streamWs = null;
+    });
+    upstream.on("error", err => {
+      console.error(`[WS↑] error: ${err.message}`);
+      send({ type: "stream_ws_error", message: err.message });
+    });
+    streamWs = upstream;
   }
 
   clientWs.on("message", async raw => {
@@ -302,11 +239,11 @@ wss.on("connection", (clientWs, req) => {
         break;
       }
 
-      // Proxy an HTTP request (used by client.html UI, not the stream iframe)
+      // Proxy an HTTP request (UI + stream shim both use this)
       case "request": {
         const reqUrl = msg.url.startsWith("http") ? msg.url
           : targetOrigin + (msg.url.startsWith("/") ? msg.url : "/" + msg.url);
-        console.log(`[→ ctrl] ${(msg.method||"GET").padEnd(6)} ${reqUrl.replace(targetOrigin||"","")}`);
+        console.log(`[→] ${(msg.method||"GET").padEnd(6)} ${reqUrl.replace(targetOrigin||"","")}`);
         try {
           const r = await proxyHttp(reqUrl, msg.method, msg.headers, msg.body);
           const ct  = r.headers["content-type"] || "";
@@ -321,6 +258,31 @@ wss.on("connection", (clientWs, req) => {
         break;
       }
 
+      // ── Stream WebSocket tunnel ────────────────────────────────────────
+      case "stream_ws_open": {
+        if (!targetOrigin) { send({ type:"error", message:"not connected" }); return; }
+        const wsUrl = msg.url.startsWith("ws")
+          ? msg.url
+          : targetOrigin.replace(/^https?:/, p => p.replace("http","ws")) +
+            (msg.url.startsWith("/") ? msg.url : "/" + msg.url);
+        openStreamWs(wsUrl, msg.protocols);
+        break;
+      }
+
+      case "stream_ws_send": {
+        if (!streamWs || streamWs.readyState !== WebSocket.OPEN) return;
+        if (msg.binary) {
+          streamWs.send(Buffer.from(msg.data, "base64"), { binary: true });
+        } else {
+          streamWs.send(msg.data);
+        }
+        break;
+      }
+
+      case "stream_ws_close":
+        if (streamWs) { streamWs.close(); streamWs = null; }
+        break;
+
       case "ping":
         send({ type:"pong", ts:Date.now() });
         break;
@@ -334,27 +296,26 @@ wss.on("connection", (clientWs, req) => {
     console.log(`[-] control client disconnected`);
     controlClients.delete(clientWs);
     clearInterval(pingTimer);
+    if (streamWs) { streamWs.close(); streamWs = null; }
   });
 
   clientWs.on("error", err => console.error(`[!] control WS error: ${err.message}`));
 
-  send({ type:"ready", version:"4.0.0",
-         proxyUrl:`http://localhost:${PORT}`,
+  send({ type:"ready", version:"5.0.0",
          controlUrl:`ws://localhost:${PORT}${CONTROL_PATH}` });
 });
 
 // ── Start ──────────────────────────────────────────────────────────────────
 httpServer.listen(PORT, () => {
   console.log(`
-╔══════════════════════════════════════════════════════╗
-║  moonlight-web-ws-proxy  v4.0                        ║
-║                                                      ║
-║  HTTP reverse proxy : http://localhost:${PORT}         ║
-║  Control WS         : ws://localhost:${PORT}/proxy-control ║
-║  Health             : http://localhost:${PORT}/proxy-health║
-║                                                      ║
-║  v4 fix: full HTTP proxy — Web Workers resolve       ║
-║  imports correctly (no more blob URL iframe)         ║
-╚══════════════════════════════════════════════════════╝
+╔════════════════════════════════════════════════════════╗
+║  moonlight-web-ws-proxy  v5.0  (WebSocket only)        ║
+║                                                        ║
+║  Control WS : ws://localhost:${PORT}${CONTROL_PATH}    ║
+║  Health     : http://localhost:${PORT}/proxy-health    ║
+║                                                        ║
+║  All data (UI, stream assets, WS signaling)            ║
+║  flows through the control WebSocket only.             ║
+╚════════════════════════════════════════════════════════╝
 `);
 });
