@@ -3,474 +3,446 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Moonlight Web — Proxy Client</title>
+<title>Moonlight — Proxy Client</title>
 <style>
-  @import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Geist+Mono:wght@300;400;500;600&display=swap');
 
-  :root {
-    --bg:      #07090c;
-    --surface: #0f1318;
-    --card:    #141920;
-    --border:  #1c2530;
-    --accent:  #3b9eff;
-    --green:   #22c55e;
-    --red:     #f43f5e;
-    --amber:   #f59e0b;
-    --text:    #b8ccd8;
-    --dim:     #3d5060;
-    --mono:    'IBM Plex Mono', monospace;
-    --sans:    'IBM Plex Sans', sans-serif;
-  }
+:root {
+  --bg:     #080b0e;
+  --s1:     #0e1318;
+  --s2:     #141c23;
+  --border: #1c2830;
+  --accent: #3b9eff;
+  --green:  #22c55e;
+  --red:    #f43f5e;
+  --amber:  #f59e0b;
+  --text:   #b8ccd8;
+  --dim:    #3d5060;
+  --mono:   'Geist Mono', 'Courier New', monospace;
+}
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+html,body{height:100%;background:var(--bg);color:var(--text);font-family:var(--mono);font-size:13px;overflow:hidden}
 
-  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+/* ── layout ── */
+#shell{display:grid;grid-template-rows:44px 1fr;height:100vh}
 
-  html, body { height: 100%; background: var(--bg); color: var(--text);
-               font-family: var(--sans); font-size: 13px; overflow: hidden; }
+/* ── topbar ── */
+#tb{
+  display:flex;align-items:center;gap:12px;padding:0 16px;
+  background:var(--s1);border-bottom:1px solid var(--border);
+}
+.brand{font-size:13px;font-weight:600;color:#fff;white-space:nowrap}
+.brand em{color:var(--accent);font-style:normal}
+.sep{width:1px;height:20px;background:var(--border);flex-shrink:0}
+.field{display:flex;align-items:center;gap:6px}
+.field label{font-size:10px;color:var(--dim);white-space:nowrap;text-transform:uppercase;letter-spacing:.06em}
+input[type=text],input[type=password]{
+  background:var(--bg);border:1px solid var(--border);
+  color:var(--text);font-family:var(--mono);font-size:12px;
+  padding:5px 9px;border-radius:5px;outline:none;transition:border-color .15s;
+}
+input:focus{border-color:var(--accent)}
+input::placeholder{color:var(--dim)}
+#inp-target{width:200px}
+#inp-proxy{width:170px}
+.btn{
+  font-family:var(--mono);font-size:11px;font-weight:600;
+  padding:5px 13px;border-radius:5px;border:none;cursor:pointer;
+  white-space:nowrap;transition:opacity .15s,transform .1s;letter-spacing:.02em;
+}
+.btn:active{transform:scale(.97)}
+.btn:disabled{opacity:.35;cursor:not-allowed}
+.btn-p{background:var(--accent);color:#000}
+.btn-p:hover:not(:disabled){opacity:.85}
+.btn-g{background:transparent;color:var(--dim);border:1px solid var(--border)}
+.btn-g:hover:not(:disabled){color:var(--text);border-color:var(--dim)}
+.btn-r{background:transparent;color:var(--red);border:1px solid rgba(244,63,94,.3)}
+.btn-r:hover:not(:disabled){background:rgba(244,63,94,.08)}
+.pill{
+  display:flex;align-items:center;gap:5px;padding:3px 10px;border-radius:99px;
+  border:1px solid var(--border);background:var(--bg);
+  font-size:10px;white-space:nowrap;margin-left:auto;
+}
+.dot{width:5px;height:5px;border-radius:50%;background:var(--dim);transition:all .3s}
+.pill.idle .dot{background:var(--dim)}
+.pill.conn .dot{background:var(--amber);animation:blink 1s infinite}
+.pill.ok   .dot{background:var(--green);box-shadow:0 0 5px var(--green)}
+.pill.err  .dot{background:var(--red)}
+@keyframes blink{0%,100%{opacity:1}50%{opacity:.2}}
 
-  /* ── Layout ── */
-  #shell { display: grid; grid-template-rows: 48px 1fr; height: 100vh; }
+/* ── body ── */
+#body{display:grid;grid-template-columns:260px 1fr;overflow:hidden}
 
-  /* ── Topbar ── */
-  #topbar {
-    display: flex; align-items: center; gap: 16px;
-    padding: 0 20px;
-    background: var(--surface);
-    border-bottom: 1px solid var(--border);
-    flex-shrink: 0;
-  }
+/* ── sidebar ── */
+#side{
+  background:var(--s1);border-right:1px solid var(--border);
+  display:flex;flex-direction:column;overflow:hidden;
+}
+.sb{padding:12px 14px;border-bottom:1px solid var(--border)}
+.sbt{font-size:9px;font-weight:600;letter-spacing:.1em;color:var(--dim);text-transform:uppercase;margin-bottom:8px}
+.kv{display:flex;justify-content:space-between;align-items:baseline;padding:3px 0;gap:6px;font-size:10px}
+.kk{color:var(--dim);flex-shrink:0}
+.kv_{color:var(--text);text-align:right;word-break:break-all}
+.kv_.ok{color:var(--green)} .kv_.bad{color:var(--red)} .kv_.dim{color:var(--dim)}
 
-  .brand {
-    font-family: var(--mono); font-size: 14px; font-weight: 600;
-    color: #fff; letter-spacing: -.02em; white-space: nowrap;
-  }
-  .brand em { color: var(--accent); font-style: normal; }
+/* ── log ── */
+#logwrap{flex:1;overflow:hidden;display:flex;flex-direction:column}
+#logtitle{font-size:9px;font-weight:600;letter-spacing:.1em;color:var(--dim);text-transform:uppercase;padding:10px 14px 4px}
+#log{flex:1;overflow-y:auto;padding:2px 14px 10px;display:flex;flex-direction:column;gap:1px}
+#log::-webkit-scrollbar{width:3px}
+#log::-webkit-scrollbar-thumb{background:var(--border);border-radius:3px}
+.le{display:flex;gap:7px;font-size:10px;line-height:1.5;opacity:0;animation:fi .15s forwards}
+@keyframes fi{to{opacity:1}}
+.le-t{color:var(--dim);flex-shrink:0}
+.le-m{color:#4a6070;word-break:break-all}
+.le.info .le-m{color:var(--accent)}
+.le.ok   .le-m{color:var(--green)}
+.le.warn .le-m{color:var(--amber)}
+.le.err  .le-m{color:var(--red)}
 
-  .sep { width: 1px; height: 22px; background: var(--border); flex-shrink: 0; }
+/* ── main panel ── */
+#main{display:flex;flex-direction:column;overflow:hidden;position:relative}
 
-  .field { display: flex; align-items: center; gap: 6px; }
-  .field label { font-family: var(--mono); font-size: 10px; color: var(--dim);
-                 white-space: nowrap; text-transform: uppercase; letter-spacing: .06em; }
+/* ── views ── */
+.view{flex:1;overflow:hidden;display:flex;flex-direction:column}
+.hidden{display:none!important}
 
-  input {
-    background: var(--bg); border: 1px solid var(--border);
-    color: var(--text); font-family: var(--mono); font-size: 12px;
-    padding: 5px 9px; border-radius: 5px; outline: none;
-    transition: border-color .15s;
-  }
-  input:focus { border-color: var(--accent); }
-  input::placeholder { color: var(--dim); }
-  #inp-target { width: 220px; }
-  #inp-proxy  { width: 180px; }
+/* ── welcome ── */
+#v-welcome{
+  align-items:center;justify-content:center;gap:16px;padding:32px;
+  background:radial-gradient(ellipse at 50% 55%,rgba(59,158,255,.03) 0%,transparent 60%);
+}
+.wicon{width:56px;height:56px;background:var(--s1);border:1px solid var(--border);border-radius:14px;
+  display:flex;align-items:center;justify-content:center;font-size:26px;
+  animation:float 4s ease-in-out infinite}
+@keyframes float{0%,100%{transform:translateY(0)}50%{transform:translateY(-6px)}}
+.wtitle{font-size:15px;font-weight:600;color:#fff}
+.wsub{font-size:11px;color:var(--dim);text-align:center;max-width:320px;line-height:1.8}
+.steps{display:flex;flex-direction:column;gap:8px}
+.step{display:flex;align-items:flex-start;gap:8px;font-size:11px;color:var(--dim);max-width:320px}
+.snum{width:18px;height:18px;border-radius:50%;border:1px solid var(--border);
+  display:flex;align-items:center;justify-content:center;font-size:9px;color:var(--accent);flex-shrink:0;margin-top:2px}
 
-  .btn {
-    font-family: var(--mono); font-size: 11px; font-weight: 600;
-    padding: 6px 14px; border-radius: 5px; border: none; cursor: pointer;
-    white-space: nowrap; transition: opacity .15s, transform .1s;
-    letter-spacing: .03em;
-  }
-  .btn:active { transform: scale(.97); }
-  .btn:disabled { opacity: .35; cursor: not-allowed; }
-  .btn-primary { background: var(--accent); color: #000; }
-  .btn-primary:hover:not(:disabled) { opacity: .85; }
-  .btn-ghost   { background: transparent; color: var(--dim);
-                 border: 1px solid var(--border); }
-  .btn-ghost:hover:not(:disabled) { color: var(--text); border-color: var(--dim); }
-  .btn-danger  { background: transparent; color: var(--red);
-                 border: 1px solid rgba(244,63,94,.3); }
-  .btn-danger:hover:not(:disabled) { background: rgba(244,63,94,.08); }
+/* ── login ── */
+#v-login{align-items:center;justify-content:center}
+.card{
+  background:var(--s1);border:1px solid var(--border);border-radius:10px;
+  padding:28px 30px;width:300px;display:flex;flex-direction:column;gap:14px;
+}
+.card-title{font-size:14px;font-weight:600;color:#fff}
+.card-sub{font-size:11px;color:var(--dim);line-height:1.7;margin-top:-6px}
+.row{display:flex;flex-direction:column;gap:4px}
+.row label{font-size:10px;color:var(--dim);text-transform:uppercase;letter-spacing:.06em}
+.row input{width:100%;font-size:12px}
+.row-err{color:var(--red);font-size:11px;min-height:12px}
+.row-actions{display:flex;gap:8px;justify-content:flex-end}
 
-  .pill {
-    display: flex; align-items: center; gap: 5px;
-    padding: 3px 10px; border-radius: 99px;
-    border: 1px solid var(--border); background: var(--bg);
-    font-family: var(--mono); font-size: 10px; white-space: nowrap;
-    margin-left: auto;
-  }
-  .dot { width: 5px; height: 5px; border-radius: 50%; background: var(--dim); transition: all .3s; }
-  .pill.idle        .dot { background: var(--dim); }
-  .pill.connecting  .dot { background: var(--amber); animation: blink 1s infinite; }
-  .pill.connected   .dot { background: var(--green); box-shadow: 0 0 5px var(--green); }
-  .pill.error       .dot { background: var(--red); }
-  @keyframes blink { 0%,100%{opacity:1} 50%{opacity:.2} }
+/* ── hosts ── */
+#v-hosts{overflow-y:auto;padding:20px}
+.view-title{font-size:11px;font-weight:600;color:var(--dim);text-transform:uppercase;
+  letter-spacing:.06em;margin-bottom:14px}
+.host-list{display:flex;flex-direction:column;gap:8px}
+.host-card{
+  background:var(--s1);border:1px solid var(--border);border-radius:8px;
+  padding:14px 16px;cursor:pointer;transition:border-color .15s,background .15s;
+  display:flex;align-items:center;gap:12px;
+}
+.host-card:hover{border-color:var(--accent);background:var(--s2)}
+.host-icon{width:36px;height:36px;background:var(--s2);border:1px solid var(--border);
+  border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:18px;flex-shrink:0}
+.host-info{flex:1;overflow:hidden}
+.host-name{color:#fff;font-size:12px;font-weight:500}
+.host-meta{color:var(--dim);font-size:10px;margin-top:2px}
+.badge{
+  font-size:9px;padding:2px 7px;border-radius:99px;
+  border:1px solid var(--border);background:var(--bg);color:var(--dim);
+}
+.badge.paired{border-color:rgba(34,197,94,.3);color:var(--green)}
+.badge.busy{border-color:rgba(245,158,11,.3);color:var(--amber)}
 
-  .hidden { display: none !important; }
+/* ── apps ── */
+#v-apps{overflow-y:auto;padding:20px}
+.apps-header{display:flex;align-items:center;gap:10px;margin-bottom:14px}
+.back-btn{background:transparent;border:1px solid var(--border);color:var(--dim);
+  font-family:var(--mono);font-size:11px;padding:4px 10px;border-radius:5px;cursor:pointer}
+.back-btn:hover{color:var(--text)}
+.app-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:10px}
+.app-card{
+  background:var(--s1);border:1px solid var(--border);border-radius:8px;
+  overflow:hidden;cursor:pointer;transition:border-color .15s,transform .15s;
+}
+.app-card:hover{border-color:var(--accent);transform:translateY(-2px)}
+.app-img{width:100%;aspect-ratio:16/9;object-fit:cover;background:var(--s2);
+  display:flex;align-items:center;justify-content:center;font-size:28px}
+.app-img img{width:100%;height:100%;object-fit:cover;display:block}
+.app-name{font-size:11px;color:var(--text);padding:8px 10px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 
-  /* ── Body ── */
-  #body { display: grid; grid-template-columns: 260px 1fr; overflow: hidden; }
-
-  /* ── Sidebar ── */
-  #sidebar {
-    background: var(--surface); border-right: 1px solid var(--border);
-    display: flex; flex-direction: column; overflow: hidden;
-  }
-
-  .sb-section { padding: 14px 16px; border-bottom: 1px solid var(--border); }
-  .sb-title {
-    font-family: var(--mono); font-size: 9px; font-weight: 600;
-    letter-spacing: .1em; color: var(--dim); text-transform: uppercase;
-    margin-bottom: 10px;
-  }
-
-  .kv { display: flex; justify-content: space-between; align-items: baseline;
-        padding: 3px 0; gap: 8px; }
-  .kv-k { color: var(--dim); font-family: var(--mono); font-size: 10px; flex-shrink: 0; }
-  .kv-v { color: var(--text); font-family: var(--mono); font-size: 10px;
-           text-align: right; word-break: break-all; }
-  .kv-v.ok  { color: var(--green); }
-  .kv-v.bad { color: var(--red); }
-  .kv-v.dim { color: var(--dim); }
-
-  /* ── Log ── */
-  #log-wrap { flex: 1; overflow: hidden; display: flex; flex-direction: column; }
-  #log-title { font-family: var(--mono); font-size: 9px; font-weight: 600;
-               letter-spacing: .1em; color: var(--dim); text-transform: uppercase;
-               padding: 10px 16px 4px; }
-  #log {
-    flex: 1; overflow-y: auto; padding: 4px 16px 12px;
-    display: flex; flex-direction: column; gap: 2px;
-  }
-  #log::-webkit-scrollbar { width: 3px; }
-  #log::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
-
-  .le {
-    display: flex; gap: 7px; font-family: var(--mono); font-size: 10px;
-    line-height: 1.55; opacity: 0; animation: fi .15s forwards;
-  }
-  @keyframes fi { to { opacity: 1; } }
-  .le-t  { color: var(--dim); flex-shrink: 0; }
-  .le-m  { color: #607080; word-break: break-all; }
-  .le.info  .le-m { color: var(--accent); }
-  .le.ok    .le-m { color: var(--green); }
-  .le.warn  .le-m { color: var(--amber); }
-  .le.err   .le-m { color: var(--red); }
-
-  /* ── Stream panel ── */
-  #stream-panel { position: relative; background: #000; display: flex; flex-direction: column; }
-
-  #stream-bar {
-    display: flex; align-items: center; gap: 12px; padding: 8px 16px;
-    background: rgba(15,19,24,.95); border-bottom: 1px solid var(--border);
-    backdrop-filter: blur(6px); z-index: 10; flex-shrink: 0;
-  }
-  #stream-url { font-family: var(--mono); font-size: 10px; color: var(--dim);
-                flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  #stream-url span { color: var(--accent); }
-
-  #stream-frame { flex: 1; border: none; width: 100%; background: #000; }
-
-  /* ── Welcome overlay ── */
-  #welcome {
-    position: absolute; inset: 0;
-    display: flex; flex-direction: column; align-items: center; justify-content: center;
-    gap: 18px; padding: 32px;
-    background: radial-gradient(ellipse at 50% 55%, rgba(59,158,255,.04) 0%, transparent 65%);
-  }
-
-  .wl-icon {
-    width: 64px; height: 64px; background: var(--card);
-    border: 1px solid var(--border); border-radius: 16px;
-    display: flex; align-items: center; justify-content: center;
-    font-size: 28px; animation: float 4s ease-in-out infinite;
-  }
-  @keyframes float { 0%,100%{transform:translateY(0)} 50%{transform:translateY(-7px)} }
-
-  .wl-title { font-family: var(--sans); font-weight: 600; font-size: 17px; color: #fff; }
-  .wl-sub   { font-size: 12px; color: var(--dim); text-align: center;
-              max-width: 340px; line-height: 1.8; }
-
-  .steps { display: flex; flex-direction: column; gap: 10px; }
-  .step  { display: flex; align-items: flex-start; gap: 10px; font-size: 11px; color: var(--dim); max-width: 340px; }
-  .sn    { width: 20px; height: 20px; border-radius: 50%; border: 1px solid var(--border);
-           display: flex; align-items: center; justify-content: center;
-           font-size: 9px; color: var(--accent); font-family: var(--mono); flex-shrink: 0; margin-top: 1px; }
-  .step b { color: var(--text); font-weight: 500; }
-
-  /* ── Auth modal ── */
-  #auth-modal {
-    position: absolute; inset: 0; background: rgba(7,9,12,.85);
-    display: flex; align-items: center; justify-content: center;
-    z-index: 100; backdrop-filter: blur(4px);
-  }
-  .modal-card {
-    background: var(--card); border: 1px solid var(--border);
-    border-radius: 10px; padding: 28px 32px; width: 320px;
-    display: flex; flex-direction: column; gap: 16px;
-  }
-  .modal-title { font-weight: 600; font-size: 15px; color: #fff; }
-  .modal-sub   { font-size: 11px; color: var(--dim); line-height: 1.7; margin-top: -8px; }
-  .form-row    { display: flex; flex-direction: column; gap: 5px; }
-  .form-row label { font-family: var(--mono); font-size: 10px; color: var(--dim);
-                    text-transform: uppercase; letter-spacing: .06em; }
-  .form-row input { width: 100%; }
-  .modal-err { color: var(--red); font-size: 11px; min-height: 14px; }
-  .modal-actions { display: flex; gap: 8px; justify-content: flex-end; }
+/* ── stream ── */
+#v-stream{position:relative;background:#000}
+#stream-bar{
+  display:flex;align-items:center;gap:10px;padding:7px 14px;
+  background:rgba(14,19,24,.95);border-bottom:1px solid var(--border);
+  backdrop-filter:blur(6px);flex-shrink:0;z-index:10;
+}
+#stream-label{font-size:10px;color:var(--dim);flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+#stream-label span{color:var(--accent)}
+#stream-frame{flex:1;border:none;width:100%;background:#000;min-height:0}
 </style>
 </head>
 <body>
 <div id="shell">
 
-  <!-- ── Topbar ── -->
-  <div id="topbar">
-    <div class="brand">moonlight<em>·proxy</em></div>
-    <div class="sep"></div>
+<!-- ── Topbar ── -->
+<div id="tb">
+  <div class="brand">moonlight<em>·proxy</em></div>
+  <div class="sep"></div>
+  <div class="field">
+    <label>Proxy</label>
+    <input id="inp-proxy" type="text" value="ws://localhost:8765" placeholder="ws://localhost:8765">
+  </div>
+  <div class="field">
+    <label>Server</label>
+    <input id="inp-target" type="text" placeholder="moon.holdheide.com" value="">
+  </div>
+  <button class="btn btn-p" id="btn-connect">Connect</button>
+  <button class="btn btn-r hidden" id="btn-disconnect">Disconnect</button>
+  <div class="pill idle" id="pill"><div class="dot"></div><span id="ptxt">Idle</span></div>
+</div>
 
-    <div class="field">
-      <label>Proxy</label>
-      <input id="inp-proxy" type="text" value="ws://localhost:8765" placeholder="ws://localhost:8765">
+<!-- ── Body ── -->
+<div id="body">
+
+  <!-- ── Sidebar ── -->
+  <div id="side">
+    <div class="sb">
+      <div class="sbt">Connection</div>
+      <div class="kv"><span class="kk">Proxy</span>  <span class="kv_ dim" id="i-proxy">—</span></div>
+      <div class="kv"><span class="kk">Server</span> <span class="kv_ dim" id="i-target">—</span></div>
+      <div class="kv"><span class="kk">Auth</span>   <span class="kv_ dim" id="i-auth">—</span></div>
+      <div class="kv"><span class="kk">RTT</span>    <span class="kv_ dim" id="i-rtt">—</span></div>
+      <div class="kv"><span class="kk">Reqs</span>   <span class="kv_ dim" id="i-reqs">0</span></div>
     </div>
-
-    <div class="field">
-      <label>Moonlight Server</label>
-      <input id="inp-target" type="text" placeholder="moon.holdheide.com:8080">
+    <div class="sb">
+      <div class="sbt">Session</div>
+      <div class="kv"><span class="kk">User</span>   <span class="kv_ dim" id="i-user">—</span></div>
+      <div class="kv"><span class="kk">Role</span>   <span class="kv_ dim" id="i-role">—</span></div>
+      <div class="kv"><span class="kk">Host</span>   <span class="kv_ dim" id="i-host">—</span></div>
+      <div class="kv"><span class="kk">App</span>    <span class="kv_ dim" id="i-app">—</span></div>
+      <div class="kv"><span class="kk">WS</span>     <span class="kv_ dim" id="i-ws">—</span></div>
     </div>
-
-    <button class="btn btn-primary" id="btn-connect">Connect</button>
-    <button class="btn btn-danger hidden" id="btn-disconnect">Disconnect</button>
-    <button class="btn btn-ghost hidden" id="btn-open">Open UI</button>
-
-    <div class="pill idle" id="pill">
-      <div class="dot"></div>
-      <span id="pill-txt">Idle</span>
+    <div id="logwrap">
+      <div id="logtitle">Log</div>
+      <div id="log"></div>
     </div>
   </div>
 
-  <!-- ── Body ── -->
-  <div id="body">
+  <!-- ── Main ── -->
+  <div id="main">
 
-    <!-- ── Sidebar ── -->
-    <div id="sidebar">
-      <div class="sb-section">
-        <div class="sb-title">Proxy</div>
-        <div class="kv"><span class="kv-k">WS</span>      <span class="kv-v dim" id="inf-ws">—</span></div>
-        <div class="kv"><span class="kv-k">Target</span>  <span class="kv-v dim" id="inf-tgt">—</span></div>
-        <div class="kv"><span class="kv-k">State</span>   <span class="kv-v dim" id="inf-state">disconnected</span></div>
-        <div class="kv"><span class="kv-k">Requests</span><span class="kv-v dim" id="inf-reqs">0</span></div>
-        <div class="kv"><span class="kv-k">RTT</span>     <span class="kv-v dim" id="inf-rtt">—</span></div>
-      </div>
-
-      <div class="sb-section">
-        <div class="sb-title">Session</div>
-        <div class="kv"><span class="kv-k">User</span>    <span class="kv-v dim" id="inf-user">—</span></div>
-        <div class="kv"><span class="kv-k">Admin</span>   <span class="kv-v dim" id="inf-admin">—</span></div>
-        <div class="kv"><span class="kv-k">Stream WS</span><span class="kv-v dim" id="inf-sws">closed</span></div>
-      </div>
-
-      <div id="log-wrap">
-        <div id="log-title">Log</div>
-        <div id="log"></div>
+    <!-- Welcome -->
+    <div id="v-welcome" class="view" style="display:flex">
+      <div class="wicon">🌙</div>
+      <div class="wtitle">Moonlight Web Proxy</div>
+      <div class="wsub">Bridges this offline page to your moonlight-web-stream server over a local WebSocket proxy.</div>
+      <div class="steps">
+        <div class="step"><div class="snum">1</div><span>Run <b>node proxy-server.js</b> locally (installs via <code>npm i ws</code>)</span></div>
+        <div class="step"><div class="snum">2</div><span>Enter your server address (e.g. <b>moon.holdheide.com</b>)</span></div>
+        <div class="step"><div class="snum">3</div><span>Click Connect → log in → pick a host → pick an app</span></div>
       </div>
     </div>
 
-    <!-- ── Stream panel ── -->
-    <div id="stream-panel">
+    <!-- Login -->
+    <div id="v-login" class="view hidden">
+      <div class="card">
+        <div class="card-title">Sign in</div>
+        <div class="card-sub" id="login-sub">Connecting to <span id="login-origin" style="color:var(--accent)"></span></div>
+        <div class="row"><label>Username</label><input id="inp-user" type="text" placeholder="name" autocomplete="username"></div>
+        <div class="row"><label>Password</label><input id="inp-pass" type="password" placeholder="password" autocomplete="current-password"></div>
+        <div class="row-err" id="login-err"></div>
+        <div class="row-actions">
+          <button class="btn btn-p" id="btn-login">Login</button>
+        </div>
+      </div>
+    </div>
 
+    <!-- Hosts -->
+    <div id="v-hosts" class="view hidden">
+      <div class="view-title">Hosts</div>
+      <div class="host-list" id="host-list"></div>
+    </div>
+
+    <!-- Apps -->
+    <div id="v-apps" class="view hidden">
+      <div class="apps-header">
+        <button class="back-btn" onclick="showHosts()">← Back</button>
+        <div class="view-title" style="margin:0" id="apps-title">Apps</div>
+      </div>
+      <div class="app-grid" id="app-grid"></div>
+    </div>
+
+    <!-- Stream -->
+    <div id="v-stream" class="view hidden" style="display:flex;flex-direction:column">
       <div id="stream-bar">
-        <div id="stream-url">Target: <span id="stream-url-txt">not connected</span></div>
-        <button class="btn btn-ghost" id="btn-fs" onclick="goFullscreen()" style="display:none">⛶</button>
+        <div id="stream-label">Streaming: <span id="stream-app-name">—</span></div>
+        <button class="btn btn-g" id="btn-stop-stream" onclick="stopStream()">✕ Stop</button>
+        <button class="btn btn-g" onclick="goFS()">⛶ Fullscreen</button>
       </div>
-
-      <!-- Moonlight SPA loads here once connected + logged in -->
-      <iframe id="stream-frame" class="hidden"
-              sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-modals"
-              allow="autoplay; fullscreen; gamepad; keyboard-lock">
+      <iframe id="stream-frame"
+        sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-modals"
+        allow="autoplay; fullscreen; gamepad; keyboard-lock">
       </iframe>
-
-      <!-- Auth modal (shown when server needs login) -->
-      <div id="auth-modal" class="hidden">
-        <div class="modal-card">
-          <div class="modal-title">Sign in to Moonlight</div>
-          <div class="modal-sub">Enter your moonlight-web-stream credentials</div>
-          <div class="form-row">
-            <label>Username</label>
-            <input id="auth-user" type="text" placeholder="username" autocomplete="username">
-          </div>
-          <div class="form-row">
-            <label>Password</label>
-            <input id="auth-pass" type="password" placeholder="password" autocomplete="current-password">
-          </div>
-          <div class="modal-err" id="auth-err"></div>
-          <div class="modal-actions">
-            <button class="btn btn-ghost" onclick="closeAuth()">Cancel</button>
-            <button class="btn btn-primary" id="btn-login" onclick="doLogin()">Login</button>
-          </div>
-        </div>
-      </div>
-
-      <!-- Welcome overlay -->
-      <div id="welcome">
-        <div class="wl-icon">🌙</div>
-        <div class="wl-title">Moonlight Web Proxy</div>
-        <div class="wl-sub">
-          A WebSocket bridge between this offline page and your
-          moonlight-web-stream server.
-        </div>
-        <div class="steps">
-          <div class="step"><div class="sn">1</div>
-            <div>Start <b>proxy-server.js</b> on your local machine<br><code style="color:var(--accent)">node proxy-server.js</code></div></div>
-          <div class="step"><div class="sn">2</div>
-            <div>Enter the proxy WS address and your <b>moonlight-web-stream</b> server URL (the Rust server running on port 8080)</div></div>
-          <div class="step"><div class="sn">3</div>
-            <div>Click <b>Connect</b>. The moonlight UI will load inside this page and all traffic tunnels through the proxy.</div></div>
-        </div>
-      </div>
-
     </div>
+
   </div>
+</div>
 </div>
 
 <script>
 'use strict';
-// ══════════════════════════════════════════════════════════════════════════
-//  Moonlight Web — Proxy Client  v2.0
+// ════════════════════════════════════════════════════════════════════════════
+//  Moonlight Web Proxy Client  v3.0
 //
-//  Architecture:
-//    client.html (file://)
-//      │
-//      ├─ WebSocket control channel  ──→  proxy-server.js (ws://localhost:8765)
-//      │    JSON message protocol:             │
-//      │     request / response           ─────┤──→ HTTP  → moonlight-web-stream
-//      │     stream_ws_open/send/close    ─────┤──→ WS    → /api/host/stream
-//      │                                       │          (WebRTC signaling)
-//      └─ <iframe> with patched globals ────────
-//           fetch, XHR, WebSocket all
-//           re-routed through postMessage
-//           → parent → proxy WS
+//  This client talks to moonlight-web-stream's REAL API (confirmed from HAR):
+//    GET  /api/authenticate        → 200 ok | 401 need login
+//    POST /api/login               body: {name, password}  → Set-Cookie mlSession
+//    GET  /api/user                → {id, name, role, ...}
+//    GET  /api/hosts               → ndjson stream
+//    GET  /api/host?host_id=X      → {host: {...}}
+//    GET  /api/apps?host_id=X      → {apps: [...]}
+//    GET  /api/app/image?host_id=X&app_id=Y&force_refresh=false  → binary image
+//    WS   /api/host/stream         → WebRTC signaling (bridged by proxy)
 //
-//  The iframe runs the REAL moonlight-web SPA. It has no idea it's proxied.
-// ══════════════════════════════════════════════════════════════════════════
+//  For the stream: loads the real moonlight SPA in an iframe with a patched
+//  fetch/XHR/WebSocket shim so all network calls tunnel through the proxy WS.
+// ════════════════════════════════════════════════════════════════════════════
 
 const $ = id => document.getElementById(id);
 
-// ── State ─────────────────────────────────────────────────────────────────
-let proxyWs      = null;
-let targetOrigin = '';
-let connected    = false;
-let reqId        = 0;
-let reqCount     = 0;
-let pending      = {};   // id → { resolve, reject }
-let pingTs       = 0;
-let pingTimer    = null;
-let sessionCookies = {}; // track cookies from responses
+// ── State ────────────────────────────────────────────────────────────────────
+let ws          = null;
+let target      = '';
+let rid         = 0;
+let reqs        = 0;
+let pending     = {};
+let pingTs      = 0;
+let pingTimer   = null;
+let currentHost = null;  // { host_id, name, ... }
+let currentApp  = null;  // { app_id, title }
 
-// ── Logging ───────────────────────────────────────────────────────────────
-function log(msg, level = 'data') {
+// ── Log ──────────────────────────────────────────────────────────────────────
+function log(msg, lvl='') {
   const el = document.createElement('div');
-  el.className = 'le ' + level;
+  el.className = 'le ' + lvl;
   const now = new Date();
-  const ts  = [now.getHours(), now.getMinutes(), now.getSeconds()]
-               .map(n => String(n).padStart(2,'0')).join(':');
-  el.innerHTML = `<span class="le-t">${ts}</span><span class="le-m">${msg}</span>`;
-  $('log').appendChild(el);
-  $('log').scrollTop = $('log').scrollHeight;
+  const ts  = [now.getHours(),now.getMinutes(),now.getSeconds()]
+               .map(n=>String(n).padStart(2,'0')).join(':');
+  el.innerHTML = `<span class="le-t">${ts}</span><span class="le-m">${escHtml(msg)}</span>`;
+  const logEl = $('log');
+  logEl.appendChild(el);
+  logEl.scrollTop = logEl.scrollHeight;
+}
+function escHtml(s){ return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;'); }
+
+// ── Status ───────────────────────────────────────────────────────────────────
+function setStatus(cls, txt) { $('pill').className='pill '+cls; $('ptxt').textContent=txt; }
+
+// ── View switcher ────────────────────────────────────────────────────────────
+const VIEWS = ['welcome','login','hosts','apps','stream'];
+function show(id) {
+  VIEWS.forEach(v => $(`v-${v}`).classList.toggle('hidden', v!==id));
 }
 
-// ── Status pill ───────────────────────────────────────────────────────────
-function setStatus(state, txt) {
-  $('pill').className = 'pill ' + state;
-  $('pill-txt').textContent = txt;
-}
-
-// ── Proxy WS send ─────────────────────────────────────────────────────────
+// ── Proxy WS helpers ─────────────────────────────────────────────────────────
 function pSend(obj) {
-  if (proxyWs && proxyWs.readyState === WebSocket.OPEN)
-    proxyWs.send(JSON.stringify(obj));
+  if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(obj));
 }
 
-// ── Connect to proxy ──────────────────────────────────────────────────────
+function apiCall(url, method, headers, body) {
+  return new Promise((res, rej) => {
+    const id = 'r'+(++rid);
+    pending[id] = {res, rej};
+    reqs++;
+    $('i-reqs').textContent = reqs;
+    pSend({ type:'request', id, url, method:method||'GET', headers:headers||{}, body:body||null });
+    setTimeout(() => {
+      if (pending[id]) { delete pending[id]; rej(new Error('timeout')); }
+    }, 30000);
+  });
+}
+
+// ── Connect to proxy ──────────────────────────────────────────────────────────
 function doConnect() {
   const proxyUrl = $('inp-proxy').value.trim();
-  let   tgtUrl   = $('inp-target').value.trim();
-  if (!proxyUrl || !tgtUrl) return;
-  if (!tgtUrl.startsWith('http')) tgtUrl = 'https://' + tgtUrl;
+  let   tgt      = $('inp-target').value.trim();
+  if (!proxyUrl || !tgt) return;
+  if (!tgt.startsWith('http')) tgt = 'https://' + tgt;
+  target = tgt;
 
-  log(`Connecting proxy → ${proxyUrl}`, 'info');
-  setStatus('connecting', 'Connecting…');
+  setStatus('conn','Connecting…');
   $('btn-connect').disabled = true;
+  log(`connecting proxy → ${proxyUrl}`, 'info');
 
-  proxyWs = new WebSocket(proxyUrl);
+  ws = new WebSocket(proxyUrl);
 
-  proxyWs.onopen = () => {
-    log('Proxy WS open', 'ok');
-    $('inf-ws').textContent    = proxyUrl;
-    $('inf-ws').className      = 'kv-v ok';
-    $('inf-state').textContent = 'proxy connected';
-
-    // Tell proxy to reach the moonlight server
-    pSend({ type: 'connect', url: tgtUrl });
-
-    // Keepalive ping
-    pingTimer = setInterval(() => {
-      pingTs = Date.now();
-      pSend({ type: 'ping' });
-    }, 5000);
+  ws.onopen = () => {
+    $('i-proxy').textContent = proxyUrl;
+    $('i-proxy').className   = 'kv_ ok';
+    pingTimer = setInterval(() => { pingTs = Date.now(); pSend({type:'ping'}); }, 5000);
+    pSend({ type:'connect', url: target });
   };
 
-  proxyWs.onmessage = e => handleProxyMsg(JSON.parse(e.data));
+  ws.onmessage = e => handleMsg(JSON.parse(e.data));
 
-  proxyWs.onclose = () => {
-    log('Proxy WS closed', 'warn');
-    onDisconnect();
+  ws.onclose = () => {
+    log('proxy WS closed','warn');
+    onDisc();
   };
 
-  proxyWs.onerror = () => {
-    log('Cannot reach proxy — is proxy-server.js running?', 'err');
-    onDisconnect();
+  ws.onerror = () => {
+    log('cannot reach proxy — is proxy-server.js running?','err');
+    onDisc();
   };
 }
 
-function onDisconnect() {
-  connected = false;
+function onDisc() {
   clearInterval(pingTimer);
-  setStatus('idle', 'Idle');
-  $('btn-connect').disabled  = false;
+  setStatus('idle','Idle');
+  $('btn-connect').disabled = false;
   $('btn-connect').classList.remove('hidden');
   $('btn-disconnect').classList.add('hidden');
-  $('btn-open').classList.add('hidden');
-  $('inf-state').textContent = 'disconnected';
-  $('inf-state').className   = 'kv-v bad';
-  Object.values(pending).forEach(p => p.reject(new Error('disconnected')));
+  $('i-proxy').className = 'kv_ bad';
+  Object.values(pending).forEach(p => p.rej(new Error('disconnected')));
   pending = {};
 }
 
-function doDisconnect() {
-  if (proxyWs) { proxyWs.close(); proxyWs = null; }
-  onDisconnect();
-}
-
-// ── Handle messages from proxy ────────────────────────────────────────────
-function handleProxyMsg(msg) {
+// ── Handle proxy messages ─────────────────────────────────────────────────────
+function handleMsg(msg) {
   switch (msg.type) {
 
     case 'ready':
-      log(`Proxy ready (v${msg.version})`, 'ok');
+      log(`proxy ready (v${msg.version})`,'ok');
       break;
 
     case 'pong':
-      $('inf-rtt').textContent = (Date.now() - pingTs) + 'ms';
+      $('i-rtt').textContent = (Date.now()-pingTs)+'ms';
       break;
 
     case 'connected': {
-      connected      = true;
-      targetOrigin   = msg.origin;
-      $('inf-tgt').textContent      = msg.origin;
-      $('inf-tgt').className        = 'kv-v ok';
-      $('inf-state').textContent    = 'connected';
-      $('inf-state').className      = 'kv-v ok';
-      $('stream-url-txt').textContent = msg.origin;
+      target = msg.origin;
+      $('i-target').textContent = msg.origin;
+      $('i-target').className   = 'kv_ ok';
       $('btn-connect').classList.add('hidden');
       $('btn-disconnect').classList.remove('hidden');
-      $('btn-open').classList.remove('hidden');
-      setStatus('connected', 'Connected');
-      log(`Reached ${msg.origin}  (HTTP ${msg.rootStatus})`, 'ok');
+      setStatus('ok','Connected');
+      log(`reached ${msg.origin}`,'ok');
 
-      if (msg.userInfo) {
-        // Already have a session
-        $('inf-user').textContent  = msg.userInfo.username || '—';
-        $('inf-admin').textContent = msg.userInfo.is_admin ? 'yes' : 'no';
-        log(`Session active: ${msg.userInfo.username}`, 'ok');
+      if (msg.authenticated && msg.userInfo) {
+        onLoggedIn(msg.userInfo);
       } else {
-        log('No active session — login required', 'warn');
-        showAuth();
+        log('not authenticated → showing login','warn');
+        $('login-origin').textContent = msg.origin;
+        show('login');
+        setTimeout(() => $('inp-user').focus(), 50);
       }
       break;
     }
@@ -479,156 +451,271 @@ function handleProxyMsg(msg) {
       const p = pending[msg.id];
       if (!p) break;
       delete pending[msg.id];
-      if (msg.error) p.reject(new Error(msg.error));
-      else           p.resolve(msg);
+      msg.error ? p.rej(new Error(msg.error)) : p.res(msg);
       break;
     }
 
-    // ── WebRTC signaling WS bridging ─────────────────────────────────────
+    // WebRTC signaling relay → iframe shim
     case 'stream_ws_open':
-      log('Stream WS open (WebRTC signaling)', 'ok');
-      $('inf-sws').textContent = 'open';
-      $('inf-sws').className   = 'kv-v ok';
-      framePost({ type: 'stream_ws_open' });
+      $('i-ws').textContent = 'open';
+      $('i-ws').className   = 'kv_ ok';
+      framePost({ type:'stream_ws_open' });
       break;
-
     case 'stream_ws_message':
-      framePost({ type: 'stream_ws_message', data: msg.data, binary: msg.binary });
+      framePost({ type:'stream_ws_message', data:msg.data, binary:msg.binary });
       break;
-
     case 'stream_ws_closed':
-      log(`Stream WS closed (${msg.code})`, 'warn');
-      $('inf-sws').textContent = 'closed';
-      $('inf-sws').className   = 'kv-v dim';
-      framePost({ type: 'stream_ws_closed', code: msg.code });
+      $('i-ws').textContent = 'closed';
+      $('i-ws').className   = 'kv_ dim';
+      framePost({ type:'stream_ws_closed', code:msg.code });
       break;
-
     case 'stream_ws_error':
-      log(`Stream WS error: ${msg.message}`, 'err');
-      framePost({ type: 'stream_ws_error', message: msg.message });
+      log(`stream WS error: ${msg.message}`,'err');
+      framePost({ type:'stream_ws_error', message:msg.message });
       break;
 
     case 'error':
-      log(`Proxy: ${msg.message}`, 'err');
+      log(`proxy: ${msg.message}`,'err');
       break;
   }
 }
 
-// ── proxyFetch — used by iframe relay ────────────────────────────────────
-function proxyFetch(reqUrl, method, headers, body) {
-  return new Promise((resolve, reject) => {
-    const id = 'r' + (++reqId);
-    pending[id] = { resolve, reject };
-    reqCount++;
-    $('inf-reqs').textContent = reqCount;
-    pSend({ type: 'request', id, url: reqUrl, method: method||'GET',
-            headers: headers||{}, body: body||null });
-    setTimeout(() => {
-      if (pending[id]) { delete pending[id]; reject(new Error('timeout')); }
-    }, 30000);
-  });
-}
-
-// ── Auth modal ────────────────────────────────────────────────────────────
-function showAuth() {
-  $('auth-modal').classList.remove('hidden');
-  setTimeout(() => $('auth-user').focus(), 50);
-}
-function closeAuth() { $('auth-modal').classList.add('hidden'); }
-
+// ── Login ─────────────────────────────────────────────────────────────────────
 async function doLogin() {
-  const user = $('auth-user').value.trim();
-  const pass = $('auth-pass').value;
-  $('auth-err').textContent = '';
-  $('btn-login').disabled   = true;
+  const name = $('inp-user').value.trim();
+  const pass = $('inp-pass').value;
+  $('login-err').textContent = '';
+  $('btn-login').disabled    = true;
+
   try {
-    const resp = await proxyFetch(
-      targetOrigin + '/api/user/login', 'POST',
-      { 'content-type': 'application/json', accept: 'application/json' },
-      JSON.stringify({ username: user, password: pass })
+    // POST /api/login — body field is "name" not "username" (confirmed from HAR)
+    const r = await apiCall(
+      `${target}/api/login`, 'POST',
+      { 'content-type': 'application/json', accept: '*/*' },
+      JSON.stringify({ name, password: pass })
     );
-    if (resp.status === 200) {
-      const data = JSON.parse(resp.body);
-      $('inf-user').textContent  = data.username || user;
-      $('inf-admin').textContent = data.is_admin ? 'yes' : 'no';
-      log(`Logged in as ${user}`, 'ok');
-      closeAuth();
+
+    if (r.status === 200) {
+      log(`logged in as ${name}`,'ok');
+      // Fetch user info
+      const ui = await apiCall(`${target}/api/user`, 'GET', { accept: 'application/json' }, null);
+      const userInfo = ui.status === 200 ? JSON.parse(ui.body) : { name };
+      onLoggedIn(userInfo);
     } else {
-      $('auth-err').textContent = `Login failed (HTTP ${resp.status})`;
+      $('login-err').textContent = `Login failed (HTTP ${r.status})`;
+      log(`login failed: HTTP ${r.status}`,'err');
     }
   } catch (err) {
-    $('auth-err').textContent = err.message;
+    $('login-err').textContent = err.message;
+    log(`login error: ${err.message}`,'err');
   }
+
   $('btn-login').disabled = false;
 }
 
-// ── Load moonlight SPA into iframe ────────────────────────────────────────
-async function openUI() {
-  if (!connected) return;
-  log('Fetching moonlight SPA…', 'info');
+// ── Post-login ────────────────────────────────────────────────────────────────
+function onLoggedIn(userInfo) {
+  $('i-auth').textContent  = 'logged in';
+  $('i-auth').className    = 'kv_ ok';
+  $('i-user').textContent  = userInfo.name || '—';
+  $('i-role').textContent  = userInfo.role || '—';
+  log(`session: ${userInfo.name} (${userInfo.role})`,'ok');
+  loadHosts();
+}
+
+// ── Hosts ─────────────────────────────────────────────────────────────────────
+async function loadHosts() {
+  show('hosts');
+  $('host-list').innerHTML = '<div style="color:var(--dim);font-size:11px">Loading…</div>';
+  log('loading hosts…');
 
   try {
-    const r = await proxyFetch(targetOrigin + '/', 'GET',
-                               { accept: 'text/html' }, null);
-    if (r.status !== 200) {
-      log(`Root page returned HTTP ${r.status}`, 'err'); return;
+    // /api/hosts returns ndjson: first line = initial list, subsequent lines = updates
+    const r = await apiCall(`${target}/api/hosts`, 'GET', { accept: '*/*' }, null);
+    if (r.status !== 200) { log(`/api/hosts HTTP ${r.status}`,'err'); return; }
+
+    // Parse ndjson — take the LAST line that has host data
+    const lines = r.body.trim().split('\n').filter(Boolean);
+    let hosts = [];
+    for (const line of lines) {
+      try {
+        const obj = JSON.parse(line);
+        if (obj.hosts)    hosts = obj.hosts;            // initial snapshot
+        else if (obj.host_id) {                          // incremental update
+          const idx = hosts.findIndex(h => h.host_id === obj.host_id);
+          if (idx !== -1) hosts[idx] = obj; else hosts.push(obj);
+        }
+      } catch {}
     }
 
-    // Inject proxy shim before </head>
-    const shim = `<script id="__proxy-shim">${buildShim()}<\/script>`;
-    let html = r.body;
-
-    // Rewrite asset URLs to absolute (img src, link href, script src)
-    html = html.replace(
-      /(\s(?:src|href|action)=["'])(?!https?:|\/\/|data:|#|javascript)([^"']*["'])/gi,
-      (_, attr, rest) => {
-        const path = rest.slice(0, -1);
-        const quote = rest.slice(-1);
-        const abs = path.startsWith('/')
-          ? targetOrigin + path
-          : targetOrigin + '/' + path;
-        return attr + abs + quote;
-      }
-    );
-
-    // Insert shim
-    const headClose = html.toLowerCase().lastIndexOf('</head>');
-    html = headClose !== -1
-      ? html.slice(0, headClose) + shim + html.slice(headClose)
-      : shim + html;
-
-    const blob    = new Blob([html], { type: 'text/html' });
-    const blobUrl = URL.createObjectURL(blob);
-
-    const frame = $('stream-frame');
-    frame.src = blobUrl;
-    frame.classList.remove('hidden');
-    $('welcome').classList.add('hidden');
-    $('btn-fs').style.display = '';
-    log('Moonlight UI loaded', 'ok');
+    renderHosts(hosts);
+    log(`${hosts.length} host(s) loaded`,'ok');
   } catch (err) {
-    log('Failed to load UI: ' + err.message, 'err');
+    log(`hosts error: ${err.message}`,'err');
   }
 }
 
-// ── relay postMessages from iframe → proxy ────────────────────────────────
+function renderHosts(hosts) {
+  const el = $('host-list');
+  if (!hosts.length) { el.innerHTML='<div style="color:var(--dim);font-size:11px">No hosts found</div>'; return; }
+  el.innerHTML = '';
+  for (const h of hosts) {
+    const card = document.createElement('div');
+    card.className = 'host-card';
+    const state  = h.server_state || 'Unknown';
+    const paired = h.paired || 'Unknown';
+    card.innerHTML = `
+      <div class="host-icon">🖥️</div>
+      <div class="host-info">
+        <div class="host-name">${escHtml(h.name||'Unknown')}</div>
+        <div class="host-meta">${escHtml(h.address||'')} ${h.http_port?'port '+h.http_port:''}</div>
+      </div>
+      <span class="badge ${paired==='Paired'?'paired':''}">${escHtml(paired)}</span>
+      <span class="badge ${state==='Busy'?'busy':''}">${escHtml(state)}</span>
+    `;
+    card.onclick = () => selectHost(h);
+    el.appendChild(card);
+  }
+}
+
+function showHosts() {
+  currentApp  = null;
+  $('i-app').textContent = '—';
+  loadHosts();
+}
+
+// ── Apps ──────────────────────────────────────────────────────────────────────
+async function selectHost(host) {
+  currentHost = host;
+  $('i-host').textContent = host.name;
+  log(`selected host: ${host.name} (id=${host.host_id})`);
+  show('apps');
+  $('apps-title').textContent = `Apps — ${host.name}`;
+  $('app-grid').innerHTML = '<div style="color:var(--dim);font-size:11px">Loading apps…</div>';
+
+  try {
+    const r = await apiCall(
+      `${target}/api/apps?host_id=${host.host_id}`, 'GET',
+      { accept: 'application/json' }, null
+    );
+    if (r.status !== 200) { log(`/api/apps HTTP ${r.status}`,'err'); return; }
+    const { apps } = JSON.parse(r.body);
+    renderApps(apps, host);
+    log(`${apps.length} app(s) loaded`,'ok');
+  } catch (err) {
+    log(`apps error: ${err.message}`,'err');
+  }
+}
+
+function renderApps(apps, host) {
+  const grid = $('app-grid');
+  grid.innerHTML = '';
+  for (const app of apps) {
+    const card = document.createElement('div');
+    card.className = 'app-card';
+
+    // Image placeholder while we load
+    const imgUrl = `${target}/api/app/image?host_id=${host.host_id}&app_id=${app.app_id}&force_refresh=false`;
+
+    card.innerHTML = `
+      <div class="app-img" id="img-${app.app_id}">🎮</div>
+      <div class="app-name">${escHtml(app.title)}</div>
+    `;
+    card.onclick = () => startStream(host, app);
+    grid.appendChild(card);
+
+    // Load image through proxy (binary)
+    loadAppImage(app.app_id, imgUrl);
+  }
+}
+
+async function loadAppImage(appId, imgUrl) {
+  try {
+    const r = await apiCall(imgUrl, 'GET', { accept: '*/*' }, null);
+    if (r.status !== 200 || !r.body) return;
+    // encoding will be 'base64' for binary
+    const src = r.encoding === 'base64'
+      ? `data:image/png;base64,${r.body}`
+      : null;
+    if (!src) return;
+    const slot = $(`img-${appId}`);
+    if (slot) slot.innerHTML = `<img src="${src}" alt="">`;
+  } catch {}
+}
+
+// ── Stream ────────────────────────────────────────────────────────────────────
+async function startStream(host, app) {
+  currentApp = app;
+  $('i-app').textContent = app.title;
+  $('stream-app-name').textContent = app.title;
+  show('stream');
+  log(`starting stream: ${app.title} on ${host.name}`,'info');
+
+  // Load the real moonlight SPA into the iframe with proxy shim injected.
+  // The SPA handles all WebRTC complexity. Our shim tunnels its network calls.
+  try {
+    const r = await apiCall(`${target}/`, 'GET', { accept: 'text/html' }, null);
+    if (r.status !== 200) { log(`/ HTTP ${r.status}`,'err'); return; }
+
+    let html = r.body;
+
+    // Rewrite relative asset URLs → absolute
+    html = html.replace(
+      /(\s(?:src|href|action)=["'])(?!https?:|\/\/|data:|#|javascript:)([^"']*["'])/gi,
+      (_, attr, rest) => {
+        const path  = rest.slice(0,-1);
+        const quote = rest.slice(-1);
+        const abs   = path.startsWith('/') ? target+path : target+'/'+path;
+        return attr+abs+quote;
+      }
+    );
+
+    // Inject shim right before </head>
+    const shim = buildShim(host, app);
+    const hi   = html.toLowerCase().lastIndexOf('</head>');
+    html = hi !== -1
+      ? html.slice(0,hi) + `<script>${shim}<\/script>\n` + html.slice(hi)
+      : `<script>${shim}<\/script>\n` + html;
+
+    const frame   = $('stream-frame');
+    const blob    = new Blob([html], { type:'text/html' });
+    const blobUrl = URL.createObjectURL(blob);
+    frame.src = blobUrl;
+    log('SPA loaded in stream frame','ok');
+  } catch (err) {
+    log(`stream load error: ${err.message}`,'err');
+  }
+}
+
+function stopStream() {
+  pSend({ type:'stream_ws_close' });
+  $('stream-frame').src = 'about:blank';
+  $('i-ws').textContent = '—';
+  loadHosts();
+}
+
+function goFS() {
+  const f = $('stream-frame');
+  (f.requestFullscreen || f.webkitRequestFullscreen || f.mozRequestFullScreen).call(f);
+}
+
+// ── postMessage relay: iframe ↔ proxy ─────────────────────────────────────────
 window.addEventListener('message', e => {
   const d = e.data;
   if (!d || !d.__mlp) return;
-
   switch (d.type) {
     case 'request':
-      proxyFetch(d.url, d.method, d.headers, d.body)
+      apiCall(d.url, d.method, d.headers, d.body)
         .then(r  => framePost({ __mlp:true, type:'response', id:d.id,
                                 status:r.status, headers:r.headers,
                                 body:r.body, encoding:r.encoding }))
         .catch(er => framePost({ __mlp:true, type:'response', id:d.id, error:er.message }));
       break;
     case 'stream_ws_open':
-      pSend({ type:'stream_ws_open', url: d.url, protocols: d.protocols });
+      pSend({ type:'stream_ws_open', url:d.url, protocols:d.protocols });
       break;
     case 'stream_ws_send':
-      pSend({ type:'stream_ws_send', data: d.data, binary: d.binary||false });
+      pSend({ type:'stream_ws_send', data:d.data, binary:d.binary||false });
       break;
     case 'stream_ws_close':
       pSend({ type:'stream_ws_close' });
@@ -638,18 +725,19 @@ window.addEventListener('message', e => {
 
 function framePost(obj) {
   const f = $('stream-frame');
-  if (f && f.contentWindow)
-    f.contentWindow.postMessage({ __mlp:true, ...obj }, '*');
+  if (f && f.contentWindow) f.contentWindow.postMessage({ __mlp:true, ...obj }, '*');
 }
 
-// ── Shim injected into the moonlight SPA iframe ───────────────────────────
-// Overrides fetch, XMLHttpRequest, WebSocket so every network call
-// goes through postMessage → parent → proxy WebSocket → moonlight server.
-function buildShim() {
+// ── Shim injected into the SPA iframe ────────────────────────────────────────
+// Patches fetch, XMLHttpRequest, and WebSocket so the SPA's network calls
+// tunnel through postMessage → parent → proxy WebSocket → moonlight server.
+function buildShim(host, app) {
   return `
 (function(){
 'use strict';
-const BASE = ${JSON.stringify(targetOrigin)};
+const BASE = ${JSON.stringify(target)};
+const AUTO_HOST_ID = ${JSON.stringify(String(host.host_id))};
+const AUTO_APP_ID  = ${JSON.stringify(String(app.app_id))};
 
 function abs(u) {
   if (!u) return u;
@@ -659,190 +747,157 @@ function abs(u) {
   return BASE + '/' + u;
 }
 
-// ── postMessage channel ──────────────────────────────────────────────────
+// postMessage channel
 let _rid = 0;
-const _pend = {};
+const _p = {};
 window.addEventListener('message', e => {
   const d = e.data;
   if (!d || !d.__mlp) return;
   switch (d.type) {
-    case 'response': {
-      const p = _pend[d.id];
-      if (!p) return;
-      delete _pend[d.id];
-      d.error ? p.rej(new Error(d.error)) : p.res(d);
-      break;
-    }
-    case 'stream_ws_open':    _wsEvent('open',    null);         break;
-    case 'stream_ws_message': _wsEvent('message', d.data, d.binary); break;
-    case 'stream_ws_closed':  _wsEvent('close',   d.code);      break;
-    case 'stream_ws_error':   _wsEvent('error',   d.message);   break;
+    case 'response': { const p=_p[d.id]; if(!p)return; delete _p[d.id]; d.error?p.rej(new Error(d.error)):p.res(d); break; }
+    case 'stream_ws_open':    _wsEv('open',null);            break;
+    case 'stream_ws_message': _wsEv('message',d.data,d.binary); break;
+    case 'stream_ws_closed':  _wsEv('close',d.code);         break;
+    case 'stream_ws_error':   _wsEv('error',d.message);      break;
   }
 });
 
-function _req(url, method, headers, body) {
-  return new Promise((res, rej) => {
-    const id = 'f'+(++_rid);
-    _pend[id] = {res,rej};
-    parent.postMessage({ __mlp:true, type:'request', id, url, method, headers, body }, '*');
-    setTimeout(() => { if(_pend[id]){ delete _pend[id]; rej(new Error('timeout')); } }, 30000);
+function _req(url,method,headers,body) {
+  return new Promise((res,rej)=>{
+    const id='s'+(++_rid);
+    _p[id]={res,rej};
+    parent.postMessage({__mlp:true,type:'request',id,url,method,headers,body},'*');
+    setTimeout(()=>{ if(_p[id]){delete _p[id];rej(new Error('timeout'));} },30000);
   });
 }
 
-// ── fetch override ───────────────────────────────────────────────────────
+// ── fetch override ────────────────────────────────────────────────────────
 window.fetch = async function(input, init={}) {
-  const url    = abs(typeof input==='string' ? input : input.url);
-  const method = init.method || (input.method) || 'GET';
-  let   headers = {};
+  const url    = abs(typeof input==='string'?input:input.url);
+  const method = (init.method||input.method||'GET').toUpperCase();
+  let headers  = {};
   if (init.headers) {
-    const h = init.headers;
-    headers = h instanceof Headers
-      ? Object.fromEntries(h.entries())
-      : (Array.isArray(h) ? Object.fromEntries(h) : {...h});
+    const h=init.headers;
+    headers=h instanceof Headers?Object.fromEntries(h.entries()):Array.isArray(h)?Object.fromEntries(h):{...h};
   }
-  let body = null;
-  if (init.body != null) {
-    body = typeof init.body === 'string' ? init.body
-         : init.body instanceof URLSearchParams ? init.body.toString()
-         : null;
+  let body=null;
+  if (init.body!=null) {
+    body=typeof init.body==='string'?init.body
+        :init.body instanceof URLSearchParams?init.body.toString()
+        :null;
   }
 
-  const r = await _req(url, method, headers, body);
+  const r = await _req(url,method,headers,body);
 
   let respBody;
-  if (r.encoding === 'base64') {
-    const bin = atob(r.body);
-    const arr = new Uint8Array(bin.length);
-    for (let i=0;i<bin.length;i++) arr[i]=bin.charCodeAt(i);
-    respBody = arr.buffer;
+  if (r.encoding==='base64') {
+    const bin=atob(r.body);
+    const a=new Uint8Array(bin.length);
+    for(let i=0;i<bin.length;i++) a[i]=bin.charCodeAt(i);
+    respBody=a.buffer;
   } else {
-    respBody = r.body;
+    respBody=r.body||'';
   }
 
-  // Reconstruct Headers (strip problematic ones the browser blocks)
-  const respHeaders = {};
-  for (const [k,v] of Object.entries(r.headers||{})) {
-    const kl = k.toLowerCase();
-    if (kl==='transfer-encoding'||kl==='content-encoding') continue;
-    respHeaders[k] = Array.isArray(v) ? v.join(', ') : v;
+  // Strip encodings we already decoded
+  const rh={};
+  for(const [k,v] of Object.entries(r.headers||{})) {
+    const kl=k.toLowerCase();
+    if(kl==='content-encoding'||kl==='transfer-encoding') continue;
+    rh[k]=Array.isArray(v)?v.join(', '):v;
   }
 
-  return new Response(respBody, { status: r.status, headers: respHeaders });
+  return new Response(respBody,{status:r.status,headers:rh});
 };
 
-// ── XMLHttpRequest override ──────────────────────────────────────────────
+// ── XHR override ──────────────────────────────────────────────────────────
 const _XHR = window.XMLHttpRequest;
 window.XMLHttpRequest = function() {
-  let _m, _u, _hdrs={};
-  const fake = {
-    readyState:0, status:0, statusText:'', responseText:'', response:null,
-    onreadystatechange:null, onload:null, onerror:null, ontimeout:null,
-    withCredentials:false, responseType:'',
-    open(m,u){ _m=m; _u=abs(u); fake.readyState=1; },
-    setRequestHeader(k,v){ _hdrs[k]=v; },
-    send(body) {
-      const b = body==null ? null
-              : typeof body==='string' ? body
-              : body instanceof URLSearchParams ? body.toString()
-              : null;
-      _req(_u,_m,_hdrs,b)
-        .then(r=>{
-          fake.status=r.status; fake.statusText='OK';
-          fake.responseText=r.body; fake.response=r.body; fake.readyState=4;
-          if (fake.onreadystatechange) fake.onreadystatechange();
-          if (fake.onload) fake.onload({target:fake});
-        })
-        .catch(err=>{ if(fake.onerror) fake.onerror(err); });
+  let _m,_u,_h={};
+  const f={
+    readyState:0,status:0,statusText:'',responseText:'',response:null,
+    onreadystatechange:null,onload:null,onerror:null,ontimeout:null,
+    withCredentials:false,responseType:'',
+    open(m,u){_m=m;_u=abs(u);f.readyState=1;},
+    setRequestHeader(k,v){_h[k]=v;},
+    send(body){
+      const b=body==null?null:typeof body==='string'?body:body instanceof URLSearchParams?body.toString():null;
+      _req(_u,_m,_h,b)
+        .then(r=>{f.status=r.status;f.statusText='OK';f.responseText=r.body||'';f.response=r.body||'';f.readyState=4;if(f.onreadystatechange)f.onreadystatechange();if(f.onload)f.onload({target:f});})
+        .catch(err=>{if(f.onerror)f.onerror(err);});
     },
     abort(){},
-    getResponseHeader(){ return null; },
-    getAllResponseHeaders(){ return ''; },
+    getResponseHeader(){return null;},
+    getAllResponseHeaders(){return '';},
     overrideMimeType(){},
-    addEventListener(ev, fn){ fake['on'+ev]=fn; },
+    addEventListener(ev,fn){f['on'+ev]=fn;},
     removeEventListener(){},
   };
-  return fake;
+  return f;
 };
 
-// ── WebSocket override ───────────────────────────────────────────────────
-// Intercepts ONLY the /api/host/stream WebSocket (WebRTC signaling).
-// Other WS calls are also bridged transparently.
-
-const _evts = {};
-function _wsEvent(ev, data, binary=false) {
-  const lst = _evts[ev]||[];
-  lst.forEach(fn => {
-    if (ev==='message') {
-      fn({data: binary
-        ? (()=>{const b=atob(data);const a=new Uint8Array(b.length);for(let i=0;i<b.length;i++)a[i]=b.charCodeAt(i);return a.buffer;})()
-        : data});
-    } else if (ev==='open')  { fn({type:'open'}); }
-    else if (ev==='close') { fn({type:'close', code:data}); }
-    else                   { fn({type:ev, message:data}); }
+// ── WebSocket override ────────────────────────────────────────────────────
+// Used for /api/host/stream (WebRTC signaling)
+const _wsEvts={};
+function _wsEv(ev,data,binary=false){
+  (_wsEvts[ev]||[]).forEach(fn=>{
+    if(ev==='message'){
+      const payload=binary
+        ?(()=>{const b=atob(data);const a=new Uint8Array(b.length);for(let i=0;i<b.length;i++)a[i]=b.charCodeAt(i);return a.buffer;})()
+        :data;
+      fn({data:payload});
+    } else if(ev==='open') fn({type:'open'});
+    else if(ev==='close') fn({type:'close',code:data});
+    else fn({type:ev,message:data});
   });
 }
 
-const _OrigWS = window.WebSocket;
 window.WebSocket = function(wsUrl, protocols) {
-  const fullUrl = wsUrl.startsWith('ws') ? wsUrl
-    : BASE.replace(/^https?/,p=>p.replace('http','ws')) + (wsUrl.startsWith('/')?wsUrl:'/'+wsUrl);
+  const full = wsUrl.startsWith('ws') ? wsUrl
+    : BASE.replace(/^https?/,p=>p.replace('http','ws'))+(wsUrl.startsWith('/')?wsUrl:'/'+wsUrl);
+  parent.postMessage({__mlp:true,type:'stream_ws_open',url:full,protocols:protocols||[]},'*');
 
-  parent.postMessage({ __mlp:true, type:'stream_ws_open',
-                       url: fullUrl, protocols: protocols||[] }, '*');
-
-  const fake = {
-    url:fullUrl, readyState:0,
-    CONNECTING:0, OPEN:1, CLOSING:2, CLOSED:3,
-    onopen:null, onmessage:null, onclose:null, onerror:null, binaryType:'arraybuffer',
-    send(data) {
-      if (data instanceof ArrayBuffer || ArrayBuffer.isView(data)) {
-        const buf = data instanceof ArrayBuffer ? data : data.buffer;
-        const arr = new Uint8Array(buf);
-        let bin=''; for(let i=0;i<arr.length;i++) bin+=String.fromCharCode(arr[i]);
-        parent.postMessage({__mlp:true,type:'stream_ws_send',data:btoa(bin),binary:true},'*');
+  const fake={
+    url:full,readyState:0,
+    CONNECTING:0,OPEN:1,CLOSING:2,CLOSED:3,
+    onopen:null,onmessage:null,onclose:null,onerror:null,binaryType:'arraybuffer',
+    send(data){
+      if(data instanceof ArrayBuffer||ArrayBuffer.isView(data)){
+        const arr=new Uint8Array(data instanceof ArrayBuffer?data:data.buffer);
+        let b='';for(let i=0;i<arr.length;i++)b+=String.fromCharCode(arr[i]);
+        parent.postMessage({__mlp:true,type:'stream_ws_send',data:btoa(b),binary:true},'*');
       } else {
         parent.postMessage({__mlp:true,type:'stream_ws_send',data:String(data),binary:false},'*');
       }
     },
     close(){ parent.postMessage({__mlp:true,type:'stream_ws_close'},'*'); },
-    addEventListener(ev,fn){ (_evts[ev]||(_evts[ev]=[])).push(fn); },
-    removeEventListener(ev,fn){ if(_evts[ev]) _evts[ev]=_evts[ev].filter(f=>f!==fn); },
+    addEventListener(ev,fn){ (_wsEvts[ev]||(_wsEvts[ev]=[])).push(fn); },
+    removeEventListener(ev,fn){ if(_wsEvts[ev])_wsEvts[ev]=_wsEvts[ev].filter(f=>f!==fn); },
   };
-
-  // Wire onX into dispatcher
-  _evts.open    = [e=>{ fake.readyState=1; if(fake.onopen)    fake.onopen(e);    }];
-  _evts.message = [e=>{ if(fake.onmessage) fake.onmessage(e); }];
-  _evts.close   = [e=>{ fake.readyState=3; if(fake.onclose)   fake.onclose(e);   }];
-  _evts.error   = [e=>{ if(fake.onerror)   fake.onerror(e);   }];
-
+  _wsEvts.open   =[e=>{fake.readyState=1;if(fake.onopen)   fake.onopen(e);}];
+  _wsEvts.message=[e=>{if(fake.onmessage)fake.onmessage(e);}];
+  _wsEvts.close  =[e=>{fake.readyState=3;if(fake.onclose)  fake.onclose(e);}];
+  _wsEvts.error  =[e=>{if(fake.onerror)  fake.onerror(e);}];
   return fake;
 };
-window.WebSocket.CONNECTING=0; window.WebSocket.OPEN=1;
-window.WebSocket.CLOSING=2;    window.WebSocket.CLOSED=3;
+window.WebSocket.CONNECTING=0;window.WebSocket.OPEN=1;
+window.WebSocket.CLOSING=2;window.WebSocket.CLOSED=3;
 
-console.log('[moonlight-proxy] shim active — fetch/XHR/WebSocket patched');
+console.log('[moonlight-proxy] shim active ✓  target='+BASE+' host='+AUTO_HOST_ID+' app='+AUTO_APP_ID);
 })();
   `;
 }
 
-// ── Fullscreen ────────────────────────────────────────────────────────────
-function goFullscreen() {
-  const f = $('stream-frame');
-  (f.requestFullscreen || f.webkitRequestFullscreen || f.mozRequestFullScreen)
-    .call(f);
-}
-
-// ── Wire buttons & Enter key ──────────────────────────────────────────────
+// ── Button wiring ─────────────────────────────────────────────────────────────
 $('btn-connect').onclick    = doConnect;
-$('btn-disconnect').onclick = doDisconnect;
-$('btn-open').onclick       = openUI;
-
+$('btn-disconnect').onclick = () => { ws && ws.close(); onDisc(); show('welcome'); };
+$('btn-login').onclick      = doLogin;
+$('inp-pass').addEventListener('keydown', e => { if (e.key==='Enter') doLogin(); });
 [$('inp-proxy'), $('inp-target')].forEach(el =>
   el.addEventListener('keydown', e => { if (e.key==='Enter') doConnect(); })
 );
-$('auth-pass').addEventListener('keydown', e => { if (e.key==='Enter') doLogin(); });
 
-log('Ready — enter your proxy and moonlight server URL above.', 'info');
+log('ready — enter proxy and server URL above','info');
 </script>
 </body>
 </html>

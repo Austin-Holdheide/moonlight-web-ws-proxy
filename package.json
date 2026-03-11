@@ -1,6 +1,6 @@
 {
   "name": "moonlight-web-ws-proxy",
-  "version": "2.0.0",
+  "version": "3.0.0",
   "description": "WebSocket proxy bridge for moonlight-web-stream (offline HTML client)",
   "main": "proxy-server.js",
   "scripts": {
