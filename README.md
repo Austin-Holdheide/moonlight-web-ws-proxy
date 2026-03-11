@@ -42,7 +42,7 @@ Then open `client.html` in your browser (double-click it, or drag it to the addr
 ## Usage
 
 1. **Control WS** — leave as `ws://localhost:8765/proxy-control`
-2. **Server** — enter your moonlight-web-stream URL, e.g. `moon.holdheide.com`
+2. **Server** — enter your moonlight-web-stream URL, e.g. `moon.example.com`
 3. Click **Connect**
 4. Log in when prompted (credentials go directly to your server, not stored locally)
 5. Select a host → select an app → stream loads
