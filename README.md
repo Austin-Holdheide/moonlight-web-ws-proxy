@@ -1,116 +1,121 @@
-# moonlight-web-ws-proxy
+# moonlight-web-ws-proxy  v2
 
-A WebSocket proxy bridge that lets you use **moonlight-web-stream** from a
-fully offline HTML file — no web server needed on the client side.
-
-```
-[client.html]  ←──── WebSocket ────→  [proxy-server.js]  ←── HTTPS ──→  [moon.holdheide.com]
-  (offline)            (local)              (Node.js)                      (Sunshine / GFE)
-```
+A WebSocket bridge that lets `client.html` (opened as a `file://` page)
+talk to a remote **moonlight-web-stream** server.
 
 ---
 
-## Quick Start
+## How moonlight-web-stream actually works
 
-### 1. Install dependencies
+```
+  Your Gaming PC
+  ┌──────────────────────────────────────────┐
+  │  Sunshine  (game capture / encoder)      │
+  │  moonlight-web-stream  (Rust, port 8080) │
+  │    ├─ serves SPA frontend at  GET /      │
+  │    ├─ REST API at  /api/...              │
+  │    └─ WebRTC signaling WS at             │
+  │         /api/host/stream                 │
+  └──────────────────────────────────────────┘
+         ↑ HTTP + WS
+  ┌──────────────────┐
+  │  proxy-server.js │  (runs on your local network / same machine)
+  │  Node.js         │
+  └──────────────────┘
+         ↑ WebSocket control channel (ws://localhost:8765)
+  ┌──────────────────┐
+  │  client.html     │  (opened from file://, no web server needed)
+  │  offline browser │
+  └──────────────────┘
+```
+
+The **actual video/audio** is WebRTC peer-to-peer — it does NOT go through
+this proxy. Only the HTTP API calls and the WebRTC signaling WebSocket are
+proxied.
+
+---
+
+## Quick start
 
 ```bash
+# 1. Install the one dependency
 npm install
-```
 
-### 2. Start the proxy server
-
-```bash
+# 2. Start the proxy
 node proxy-server.js
-# or with auto-reload:
-npm run dev
+#  → ws://localhost:8765
+
+# 3. Open client.html in your browser (file:// is fine)
+
+# 4. Fill in:
+#    Proxy:             ws://localhost:8765
+#    Moonlight Server:  https://moon.holdheide.com:8080
+#    Click Connect
 ```
-
-You'll see:
-```
-╔══════════════════════════════════════════════╗
-║   moonlight-web-ws-proxy  v1.0.0             ║
-║   WebSocket: ws://localhost:8765             ║
-║   Health:    http://localhost:8765           ║
-╚══════════════════════════════════════════════╝
-```
-
-### 3. Open client.html
-
-Open `client.html` directly in your browser (`file:///.../client.html`).
-No local web server needed.
-
-### 4. Connect
-
-| Field       | Value                          |
-|-------------|--------------------------------|
-| Proxy WS    | `ws://localhost:8765`          |
-| Target URL  | `moon.holdheide.com` (or your Sunshine host) |
-
-Click **Connect**, then **Load Stream**.
 
 ---
 
-## How it works
+## What the proxy bridges
 
-```
-client.html
-  │
-  ├─ Opens a WebSocket to proxy-server.js
-  ├─ Sends { type: "connect", url: "https://moon.holdheide.com" }
-  │
-  │  proxy-server.js:
-  │  ├─ Fetches the moonlight web app HTML
-  │  └─ Returns it + server info to client
-  │
-  ├─ Client injects the moonlight HTML into an <iframe>
-  ├─ A script is injected into the iframe that overrides:
-  │     • window.fetch
-  │     • XMLHttpRequest
-  │     • WebSocket
-  │  All of these are tunneled through postMessage → parent → proxy WS
-  │
-  └─ The moonlight app runs normally, unaware it's proxied
-```
+| Traffic | How |
+|---|---|
+| `GET /` — moonlight SPA HTML | HTTP request through proxy |
+| `GET /api/user/info` — session check | HTTP request through proxy |
+| `POST /api/user/login` — login | HTTP request through proxy |
+| `GET /api/host` — list saved hosts | HTTP request through proxy |
+| `POST /api/host` — add a host | HTTP request through proxy |
+| `GET /api/host/:id/apps` — app list | HTTP request through proxy |
+| `POST /api/host/:id/pair` — pairing | HTTP request through proxy |
+| **`WS /api/host/stream`** — **WebRTC signaling** | **Full WS bridge** |
+| WebRTC A/V data | **Direct peer-to-peer (not proxied)** |
+| Static assets (JS/CSS/images) | HTTP request through proxy |
 
-## WebSocket Protocol
+---
 
-All messages are JSON.
+## Protocol (proxy ↔ client.html)
 
-### Client → Proxy
+All messages are JSON over the WebSocket.
 
-| type         | fields                              | description                    |
-|--------------|-------------------------------------|--------------------------------|
-| `connect`    | `url`                               | Set target, fetch server info  |
-| `request`    | `id, url, method, headers, body`    | Proxy an HTTP request          |
-| `ws_connect` | `url`                               | Open upstream WebSocket        |
-| `ws_send`    | `data`                              | Send data on upstream WS       |
-| `ws_close`   | —                                   | Close upstream WS              |
-| `ping`       | —                                   | Latency check                  |
+### client → proxy
 
-### Proxy → Client
+| `type` | fields | description |
+|---|---|---|
+| `connect` | `url` | Set target origin, probe liveness |
+| `request` | `id, url, method, headers, body` | Proxy HTTP call |
+| `stream_ws_open` | `url, protocols?` | Open `/api/host/stream` WS |
+| `stream_ws_send` | `data, binary` | Send frame upstream |
+| `stream_ws_close` | — | Close upstream WS |
+| `ping` | — | Latency check |
 
-| type          | fields                                      |
-|---------------|---------------------------------------------|
-| `ready`       | —                                           |
-| `connected`   | `origin, rootStatus, serverInfo`            |
-| `response`    | `id, status, headers, body, encoding`       |
-| `ws_connected`| `url`                                       |
-| `ws_message`  | `data`                                      |
-| `ws_closed`   | `code, reason`                              |
-| `pong`        | `ts`                                        |
-| `error`       | `message`                                   |
+### proxy → client
+
+| `type` | fields | description |
+|---|---|---|
+| `ready` | `version` | Proxy started |
+| `connected` | `origin, rootStatus, userInfo` | Target reachable |
+| `response` | `id, status, headers, body, encoding` | HTTP response |
+| `stream_ws_open` | — | Upstream WS opened |
+| `stream_ws_message` | `data, binary` | Frame from upstream |
+| `stream_ws_closed` | `code, reason` | Upstream WS closed |
+| `stream_ws_error` | `message` | Upstream WS error |
+| `pong` | `ts` | Ping reply |
+| `error` | `message` | Generic error |
+
+---
 
 ## Configuration
 
-Set `PORT` env variable to change the proxy port:
 ```bash
-PORT=9000 node proxy-server.js
+PORT=9000 node proxy-server.js   # change proxy port
 ```
 
-## Notes
+If your moonlight server uses a self-signed certificate (common with
+Sunshine's built-in TLS) the proxy accepts it automatically
+(`rejectUnauthorized: false`).
 
-- The proxy uses `rejectUnauthorized: false` so self-signed Sunshine certificates work.
-- Binary responses (images, etc.) are base64-encoded over the WebSocket.
-- WebRTC streams bypass the proxy — only signaling/HTTP traffic is proxied.
-  The actual video/audio uses WebRTC peer connections directly.s
+## Apache reverse proxy note
+
+If you're already using Apache to reverse-proxy moonlight-web-stream,
+you don't need this proxy at all — just open the Apache URL directly.
+This proxy is only needed when accessing from an `file://` HTML page that
+cannot make cross-origin requests.

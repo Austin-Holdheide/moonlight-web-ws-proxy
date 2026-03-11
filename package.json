@@ -1,16 +1,14 @@
 {
   "name": "moonlight-web-ws-proxy",
-  "version": "1.0.0",
-  "description": "WebSocket proxy for moonlight-web-stream offline clients",
+  "version": "2.0.0",
+  "description": "WebSocket proxy bridge for moonlight-web-stream (offline HTML client)",
   "main": "proxy-server.js",
   "scripts": {
     "start": "node proxy-server.js",
-    "dev": "node --watch proxy-server.js"
+    "dev":   "node --watch proxy-server.js"
   },
   "dependencies": {
     "ws": "^8.18.0"
   },
-  "engines": {
-    "node": ">=18.0.0"
-  }
+  "engines": { "node": ">=18.0.0" }
 }

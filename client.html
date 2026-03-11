@@ -3,962 +3,846 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Moonlight Web — WS Proxy</title>
+<title>Moonlight Web — Proxy Client</title>
 <style>
-  @import url('https://fonts.googleapis.com/css2?family=Space+Mono:ital,wght@0,400;0,700;1,400&family=Syne:wght@400;600;700;800&display=swap');
+  @import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600&display=swap');
 
   :root {
-    --bg:       #0a0c0f;
-    --surface:  #111418;
-    --border:   #1e2530;
-    --accent:   #00d4ff;
-    --accent2:  #7b5cf8;
-    --green:    #00e887;
-    --red:      #ff4060;
-    --amber:    #ffb020;
-    --text:     #c8d8e8;
-    --muted:    #4a5568;
-    --glow:     0 0 20px rgba(0,212,255,0.15);
+    --bg:      #07090c;
+    --surface: #0f1318;
+    --card:    #141920;
+    --border:  #1c2530;
+    --accent:  #3b9eff;
+    --green:   #22c55e;
+    --red:     #f43f5e;
+    --amber:   #f59e0b;
+    --text:    #b8ccd8;
+    --dim:     #3d5060;
+    --mono:    'IBM Plex Mono', monospace;
+    --sans:    'IBM Plex Sans', sans-serif;
   }
 
   *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
-  html, body {
-    height: 100%;
-    background: var(--bg);
-    color: var(--text);
-    font-family: 'Space Mono', monospace;
-    font-size: 13px;
-    overflow: hidden;
-  }
+  html, body { height: 100%; background: var(--bg); color: var(--text);
+               font-family: var(--sans); font-size: 13px; overflow: hidden; }
 
-  /* ── Grain overlay ── */
-  body::before {
-    content: '';
-    position: fixed; inset: 0;
-    background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)' opacity='0.04'/%3E%3C/svg%3E");
-    pointer-events: none;
-    z-index: 9999;
-    opacity: 0.5;
-  }
+  /* ── Layout ── */
+  #shell { display: grid; grid-template-rows: 48px 1fr; height: 100vh; }
 
-  #app {
-    display: grid;
-    grid-template-rows: auto 1fr;
-    height: 100vh;
-  }
-
-  /* ── Header ── */
-  header {
-    display: flex;
-    align-items: center;
-    gap: 20px;
-    padding: 14px 24px;
+  /* ── Topbar ── */
+  #topbar {
+    display: flex; align-items: center; gap: 16px;
+    padding: 0 20px;
     background: var(--surface);
     border-bottom: 1px solid var(--border);
-    position: relative;
-  }
-
-  header::after {
-    content: '';
-    position: absolute;
-    bottom: -1px; left: 0; right: 0;
-    height: 1px;
-    background: linear-gradient(90deg, transparent, var(--accent), transparent);
-    opacity: 0.5;
-  }
-
-  .logo {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    text-decoration: none;
-  }
-
-  .logo-icon {
-    width: 32px; height: 32px;
-    background: linear-gradient(135deg, var(--accent), var(--accent2));
-    border-radius: 8px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    font-size: 16px;
-    box-shadow: var(--glow);
-  }
-
-  .logo-text {
-    font-family: 'Syne', sans-serif;
-    font-weight: 800;
-    font-size: 15px;
-    color: #fff;
-    letter-spacing: -0.02em;
-  }
-
-  .logo-text span {
-    color: var(--accent);
-  }
-
-  .header-controls {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    margin-left: auto;
-    flex-wrap: wrap;
-  }
-
-  .field-group {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-  }
-
-  .field-label {
-    color: var(--muted);
-    font-size: 11px;
-    white-space: nowrap;
-  }
-
-  input[type="text"] {
-    background: var(--bg);
-    border: 1px solid var(--border);
-    color: var(--text);
-    font-family: 'Space Mono', monospace;
-    font-size: 12px;
-    padding: 6px 10px;
-    border-radius: 6px;
-    outline: none;
-    transition: border-color 0.2s, box-shadow 0.2s;
-    width: 200px;
-  }
-
-  input[type="text"]:focus {
-    border-color: var(--accent);
-    box-shadow: 0 0 0 2px rgba(0,212,255,0.1);
-  }
-
-  input[type="text"]::placeholder { color: var(--muted); }
-
-  .btn {
-    font-family: 'Space Mono', monospace;
-    font-size: 12px;
-    font-weight: 700;
-    padding: 7px 18px;
-    border-radius: 6px;
-    border: none;
-    cursor: pointer;
-    transition: all 0.15s;
-    letter-spacing: 0.02em;
-    white-space: nowrap;
-  }
-
-  .btn-primary {
-    background: var(--accent);
-    color: #000;
-  }
-  .btn-primary:hover { background: #20ddff; box-shadow: 0 0 16px rgba(0,212,255,0.4); }
-  .btn-primary:active { transform: scale(0.97); }
-
-  .btn-danger {
-    background: transparent;
-    color: var(--red);
-    border: 1px solid rgba(255,64,96,0.4);
-  }
-  .btn-danger:hover { background: rgba(255,64,96,0.1); }
-
-  .btn:disabled { opacity: 0.4; cursor: not-allowed; }
-
-  .status-pill {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    padding: 4px 12px;
-    border-radius: 999px;
-    font-size: 11px;
-    border: 1px solid var(--border);
-    background: var(--bg);
-    white-space: nowrap;
-  }
-
-  .status-dot {
-    width: 6px; height: 6px;
-    border-radius: 50%;
-    background: var(--muted);
-    transition: all 0.3s;
-  }
-  .status-pill.idle   .status-dot { background: var(--muted); }
-  .status-pill.connecting .status-dot { background: var(--amber); animation: pulse 1s infinite; }
-  .status-pill.connected  .status-dot { background: var(--green); box-shadow: 0 0 6px var(--green); }
-  .status-pill.error      .status-dot { background: var(--red); }
-
-  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.3} }
-
-  /* ── Main area ── */
-  main {
-    display: grid;
-    grid-template-columns: 280px 1fr;
-    overflow: hidden;
-  }
-
-  /* ── Sidebar ── */
-  .sidebar {
-    background: var(--surface);
-    border-right: 1px solid var(--border);
-    display: flex;
-    flex-direction: column;
-    overflow: hidden;
-  }
-
-  .sidebar-section {
-    padding: 16px;
-    border-bottom: 1px solid var(--border);
-  }
-
-  .section-title {
-    font-size: 10px;
-    font-weight: 700;
-    letter-spacing: 0.1em;
-    color: var(--muted);
-    text-transform: uppercase;
-    margin-bottom: 10px;
-  }
-
-  .info-row {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    padding: 5px 0;
-    border-bottom: 1px solid rgba(255,255,255,0.03);
-    font-size: 11px;
-  }
-
-  .info-key { color: var(--muted); }
-  .info-val { color: var(--text); font-size: 11px; text-align: right; word-break: break-all; max-width: 160px; }
-  .info-val.good { color: var(--green); }
-  .info-val.bad  { color: var(--red); }
-
-  /* ── Log ── */
-  .log-area {
-    flex: 1;
-    overflow-y: auto;
-    padding: 12px 16px;
-    display: flex;
-    flex-direction: column;
-    gap: 3px;
-  }
-
-  .log-entry {
-    font-size: 11px;
-    line-height: 1.5;
-    display: flex;
-    gap: 8px;
-    opacity: 0;
-    animation: fadeIn 0.2s forwards;
-  }
-
-  @keyframes fadeIn { to { opacity: 1; } }
-
-  .log-time { color: var(--muted); flex-shrink: 0; }
-  .log-msg  { color: var(--text); word-break: break-all; }
-  .log-entry.info  .log-msg { color: var(--accent); }
-  .log-entry.ok    .log-msg { color: var(--green); }
-  .log-entry.warn  .log-msg { color: var(--amber); }
-  .log-entry.error .log-msg { color: var(--red); }
-  .log-entry.data  .log-msg { color: #9ca3af; }
-
-  .log-area::-webkit-scrollbar { width: 4px; }
-  .log-area::-webkit-scrollbar-track { background: transparent; }
-  .log-area::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
-
-  /* ── Stream frame ── */
-  .stream-panel {
-    position: relative;
-    background: #000;
-    display: flex;
-    flex-direction: column;
-  }
-
-  .stream-toolbar {
-    display: flex;
-    align-items: center;
-    gap: 12px;
-    padding: 10px 16px;
-    background: rgba(17,20,24,0.9);
-    border-bottom: 1px solid var(--border);
-    backdrop-filter: blur(8px);
-    z-index: 10;
-  }
-
-  .stream-url {
-    font-size: 11px;
-    color: var(--muted);
-    flex: 1;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-
-  .stream-url span { color: var(--accent); }
-
-  #stream-frame {
-    flex: 1;
-    border: none;
-    width: 100%;
-    background: #000;
-  }
-
-  /* ── Idle overlay ── */
-  .idle-overlay {
-    position: absolute;
-    inset: 0;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    gap: 20px;
-    background: radial-gradient(ellipse at 50% 60%, rgba(0,212,255,0.04) 0%, transparent 70%);
-  }
-
-  .idle-graphic {
-    width: 80px; height: 80px;
-    border: 1px solid var(--border);
-    border-radius: 20px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    font-size: 36px;
-    background: var(--surface);
-    box-shadow: var(--glow);
-    animation: float 4s ease-in-out infinite;
-  }
-
-  @keyframes float {
-    0%,100% { transform: translateY(0); }
-    50%      { transform: translateY(-8px); }
-  }
-
-  .idle-title {
-    font-family: 'Syne', sans-serif;
-    font-weight: 700;
-    font-size: 18px;
-    color: #fff;
-    text-align: center;
-  }
-
-  .idle-sub {
-    font-size: 12px;
-    color: var(--muted);
-    text-align: center;
-    max-width: 300px;
-    line-height: 1.8;
-  }
-
-  .idle-steps {
-    display: flex;
-    flex-direction: column;
-    gap: 8px;
-    margin-top: 8px;
-  }
-
-  .step {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    font-size: 12px;
-    color: var(--muted);
-  }
-
-  .step-num {
-    width: 22px; height: 22px;
-    border-radius: 50%;
-    border: 1px solid var(--border);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    font-size: 10px;
-    color: var(--accent);
     flex-shrink: 0;
   }
 
-  /* Fade */
+  .brand {
+    font-family: var(--mono); font-size: 14px; font-weight: 600;
+    color: #fff; letter-spacing: -.02em; white-space: nowrap;
+  }
+  .brand em { color: var(--accent); font-style: normal; }
+
+  .sep { width: 1px; height: 22px; background: var(--border); flex-shrink: 0; }
+
+  .field { display: flex; align-items: center; gap: 6px; }
+  .field label { font-family: var(--mono); font-size: 10px; color: var(--dim);
+                 white-space: nowrap; text-transform: uppercase; letter-spacing: .06em; }
+
+  input {
+    background: var(--bg); border: 1px solid var(--border);
+    color: var(--text); font-family: var(--mono); font-size: 12px;
+    padding: 5px 9px; border-radius: 5px; outline: none;
+    transition: border-color .15s;
+  }
+  input:focus { border-color: var(--accent); }
+  input::placeholder { color: var(--dim); }
+  #inp-target { width: 220px; }
+  #inp-proxy  { width: 180px; }
+
+  .btn {
+    font-family: var(--mono); font-size: 11px; font-weight: 600;
+    padding: 6px 14px; border-radius: 5px; border: none; cursor: pointer;
+    white-space: nowrap; transition: opacity .15s, transform .1s;
+    letter-spacing: .03em;
+  }
+  .btn:active { transform: scale(.97); }
+  .btn:disabled { opacity: .35; cursor: not-allowed; }
+  .btn-primary { background: var(--accent); color: #000; }
+  .btn-primary:hover:not(:disabled) { opacity: .85; }
+  .btn-ghost   { background: transparent; color: var(--dim);
+                 border: 1px solid var(--border); }
+  .btn-ghost:hover:not(:disabled) { color: var(--text); border-color: var(--dim); }
+  .btn-danger  { background: transparent; color: var(--red);
+                 border: 1px solid rgba(244,63,94,.3); }
+  .btn-danger:hover:not(:disabled) { background: rgba(244,63,94,.08); }
+
+  .pill {
+    display: flex; align-items: center; gap: 5px;
+    padding: 3px 10px; border-radius: 99px;
+    border: 1px solid var(--border); background: var(--bg);
+    font-family: var(--mono); font-size: 10px; white-space: nowrap;
+    margin-left: auto;
+  }
+  .dot { width: 5px; height: 5px; border-radius: 50%; background: var(--dim); transition: all .3s; }
+  .pill.idle        .dot { background: var(--dim); }
+  .pill.connecting  .dot { background: var(--amber); animation: blink 1s infinite; }
+  .pill.connected   .dot { background: var(--green); box-shadow: 0 0 5px var(--green); }
+  .pill.error       .dot { background: var(--red); }
+  @keyframes blink { 0%,100%{opacity:1} 50%{opacity:.2} }
+
   .hidden { display: none !important; }
+
+  /* ── Body ── */
+  #body { display: grid; grid-template-columns: 260px 1fr; overflow: hidden; }
+
+  /* ── Sidebar ── */
+  #sidebar {
+    background: var(--surface); border-right: 1px solid var(--border);
+    display: flex; flex-direction: column; overflow: hidden;
+  }
+
+  .sb-section { padding: 14px 16px; border-bottom: 1px solid var(--border); }
+  .sb-title {
+    font-family: var(--mono); font-size: 9px; font-weight: 600;
+    letter-spacing: .1em; color: var(--dim); text-transform: uppercase;
+    margin-bottom: 10px;
+  }
+
+  .kv { display: flex; justify-content: space-between; align-items: baseline;
+        padding: 3px 0; gap: 8px; }
+  .kv-k { color: var(--dim); font-family: var(--mono); font-size: 10px; flex-shrink: 0; }
+  .kv-v { color: var(--text); font-family: var(--mono); font-size: 10px;
+           text-align: right; word-break: break-all; }
+  .kv-v.ok  { color: var(--green); }
+  .kv-v.bad { color: var(--red); }
+  .kv-v.dim { color: var(--dim); }
+
+  /* ── Log ── */
+  #log-wrap { flex: 1; overflow: hidden; display: flex; flex-direction: column; }
+  #log-title { font-family: var(--mono); font-size: 9px; font-weight: 600;
+               letter-spacing: .1em; color: var(--dim); text-transform: uppercase;
+               padding: 10px 16px 4px; }
+  #log {
+    flex: 1; overflow-y: auto; padding: 4px 16px 12px;
+    display: flex; flex-direction: column; gap: 2px;
+  }
+  #log::-webkit-scrollbar { width: 3px; }
+  #log::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+
+  .le {
+    display: flex; gap: 7px; font-family: var(--mono); font-size: 10px;
+    line-height: 1.55; opacity: 0; animation: fi .15s forwards;
+  }
+  @keyframes fi { to { opacity: 1; } }
+  .le-t  { color: var(--dim); flex-shrink: 0; }
+  .le-m  { color: #607080; word-break: break-all; }
+  .le.info  .le-m { color: var(--accent); }
+  .le.ok    .le-m { color: var(--green); }
+  .le.warn  .le-m { color: var(--amber); }
+  .le.err   .le-m { color: var(--red); }
+
+  /* ── Stream panel ── */
+  #stream-panel { position: relative; background: #000; display: flex; flex-direction: column; }
+
+  #stream-bar {
+    display: flex; align-items: center; gap: 12px; padding: 8px 16px;
+    background: rgba(15,19,24,.95); border-bottom: 1px solid var(--border);
+    backdrop-filter: blur(6px); z-index: 10; flex-shrink: 0;
+  }
+  #stream-url { font-family: var(--mono); font-size: 10px; color: var(--dim);
+                flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  #stream-url span { color: var(--accent); }
+
+  #stream-frame { flex: 1; border: none; width: 100%; background: #000; }
+
+  /* ── Welcome overlay ── */
+  #welcome {
+    position: absolute; inset: 0;
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    gap: 18px; padding: 32px;
+    background: radial-gradient(ellipse at 50% 55%, rgba(59,158,255,.04) 0%, transparent 65%);
+  }
+
+  .wl-icon {
+    width: 64px; height: 64px; background: var(--card);
+    border: 1px solid var(--border); border-radius: 16px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 28px; animation: float 4s ease-in-out infinite;
+  }
+  @keyframes float { 0%,100%{transform:translateY(0)} 50%{transform:translateY(-7px)} }
+
+  .wl-title { font-family: var(--sans); font-weight: 600; font-size: 17px; color: #fff; }
+  .wl-sub   { font-size: 12px; color: var(--dim); text-align: center;
+              max-width: 340px; line-height: 1.8; }
+
+  .steps { display: flex; flex-direction: column; gap: 10px; }
+  .step  { display: flex; align-items: flex-start; gap: 10px; font-size: 11px; color: var(--dim); max-width: 340px; }
+  .sn    { width: 20px; height: 20px; border-radius: 50%; border: 1px solid var(--border);
+           display: flex; align-items: center; justify-content: center;
+           font-size: 9px; color: var(--accent); font-family: var(--mono); flex-shrink: 0; margin-top: 1px; }
+  .step b { color: var(--text); font-weight: 500; }
+
+  /* ── Auth modal ── */
+  #auth-modal {
+    position: absolute; inset: 0; background: rgba(7,9,12,.85);
+    display: flex; align-items: center; justify-content: center;
+    z-index: 100; backdrop-filter: blur(4px);
+  }
+  .modal-card {
+    background: var(--card); border: 1px solid var(--border);
+    border-radius: 10px; padding: 28px 32px; width: 320px;
+    display: flex; flex-direction: column; gap: 16px;
+  }
+  .modal-title { font-weight: 600; font-size: 15px; color: #fff; }
+  .modal-sub   { font-size: 11px; color: var(--dim); line-height: 1.7; margin-top: -8px; }
+  .form-row    { display: flex; flex-direction: column; gap: 5px; }
+  .form-row label { font-family: var(--mono); font-size: 10px; color: var(--dim);
+                    text-transform: uppercase; letter-spacing: .06em; }
+  .form-row input { width: 100%; }
+  .modal-err { color: var(--red); font-size: 11px; min-height: 14px; }
+  .modal-actions { display: flex; gap: 8px; justify-content: flex-end; }
 </style>
 </head>
 <body>
-<div id="app">
+<div id="shell">
 
-  <!-- ── Header ── -->
-  <header>
-    <a class="logo" href="#">
-      <div class="logo-icon">🌙</div>
-      <div class="logo-text">moonlight<span>·proxy</span></div>
-    </a>
+  <!-- ── Topbar ── -->
+  <div id="topbar">
+    <div class="brand">moonlight<em>·proxy</em></div>
+    <div class="sep"></div>
 
-    <div class="header-controls">
-      <div class="field-group">
-        <span class="field-label">PROXY WS</span>
-        <input type="text" id="proxy-url" placeholder="ws://localhost:8765" value="ws://localhost:8765">
-      </div>
-
-      <div class="field-group">
-        <span class="field-label">TARGET</span>
-        <input type="text" id="target-url" placeholder="moon.holdheide.com" value="">
-      </div>
-
-      <button class="btn btn-primary" id="btn-connect">Connect</button>
-      <button class="btn btn-danger hidden" id="btn-disconnect">Disconnect</button>
-
-      <div class="status-pill idle" id="status-pill">
-        <div class="status-dot"></div>
-        <span id="status-text">Idle</span>
-      </div>
+    <div class="field">
+      <label>Proxy</label>
+      <input id="inp-proxy" type="text" value="ws://localhost:8765" placeholder="ws://localhost:8765">
     </div>
-  </header>
 
-  <!-- ── Main ── -->
-  <main>
+    <div class="field">
+      <label>Moonlight Server</label>
+      <input id="inp-target" type="text" placeholder="moon.holdheide.com:8080">
+    </div>
+
+    <button class="btn btn-primary" id="btn-connect">Connect</button>
+    <button class="btn btn-danger hidden" id="btn-disconnect">Disconnect</button>
+    <button class="btn btn-ghost hidden" id="btn-open">Open UI</button>
+
+    <div class="pill idle" id="pill">
+      <div class="dot"></div>
+      <span id="pill-txt">Idle</span>
+    </div>
+  </div>
+
+  <!-- ── Body ── -->
+  <div id="body">
 
     <!-- ── Sidebar ── -->
-    <div class="sidebar">
-      <div class="sidebar-section">
-        <div class="section-title">Connection</div>
-        <div class="info-row"><span class="info-key">Proxy</span><span class="info-val" id="inf-proxy">—</span></div>
-        <div class="info-row"><span class="info-key">Target</span><span class="info-val" id="inf-target">—</span></div>
-        <div class="info-row"><span class="info-key">WS State</span><span class="info-val" id="inf-ws">Disconnected</span></div>
-        <div class="info-row"><span class="info-key">Requests</span><span class="info-val" id="inf-reqs">0</span></div>
-        <div class="info-row"><span class="info-key">Latency</span><span class="info-val" id="inf-lat">—</span></div>
+    <div id="sidebar">
+      <div class="sb-section">
+        <div class="sb-title">Proxy</div>
+        <div class="kv"><span class="kv-k">WS</span>      <span class="kv-v dim" id="inf-ws">—</span></div>
+        <div class="kv"><span class="kv-k">Target</span>  <span class="kv-v dim" id="inf-tgt">—</span></div>
+        <div class="kv"><span class="kv-k">State</span>   <span class="kv-v dim" id="inf-state">disconnected</span></div>
+        <div class="kv"><span class="kv-k">Requests</span><span class="kv-v dim" id="inf-reqs">0</span></div>
+        <div class="kv"><span class="kv-k">RTT</span>     <span class="kv-v dim" id="inf-rtt">—</span></div>
       </div>
 
-      <div class="sidebar-section">
-        <div class="section-title">Server Info</div>
-        <div id="server-info-rows">
-          <div class="info-row"><span class="info-key">Status</span><span class="info-val" id="inf-srvstatus">—</span></div>
-          <div class="info-row"><span class="info-key">Endpoint</span><span class="info-val" id="inf-srvep">—</span></div>
-        </div>
+      <div class="sb-section">
+        <div class="sb-title">Session</div>
+        <div class="kv"><span class="kv-k">User</span>    <span class="kv-v dim" id="inf-user">—</span></div>
+        <div class="kv"><span class="kv-k">Admin</span>   <span class="kv-v dim" id="inf-admin">—</span></div>
+        <div class="kv"><span class="kv-k">Stream WS</span><span class="kv-v dim" id="inf-sws">closed</span></div>
       </div>
 
-      <div class="section-title" style="padding:12px 16px 4px">Log</div>
-      <div class="log-area" id="log"></div>
+      <div id="log-wrap">
+        <div id="log-title">Log</div>
+        <div id="log"></div>
+      </div>
     </div>
 
     <!-- ── Stream panel ── -->
-    <div class="stream-panel">
-      <div class="stream-toolbar">
-        <div class="stream-url">Stream: <span id="stream-url-label">not connected</span></div>
-        <button class="btn btn-primary" id="btn-load-stream" disabled>Load Stream</button>
-        <button class="btn btn-danger hidden" id="btn-fullscreen">⛶ Fullscreen</button>
+    <div id="stream-panel">
+
+      <div id="stream-bar">
+        <div id="stream-url">Target: <span id="stream-url-txt">not connected</span></div>
+        <button class="btn btn-ghost" id="btn-fs" onclick="goFullscreen()" style="display:none">⛶</button>
       </div>
 
-      <!-- Idle overlay -->
-      <div class="idle-overlay" id="idle-overlay">
-        <div class="idle-graphic">🌙</div>
-        <div class="idle-title">Moonlight Web Proxy</div>
-        <div class="idle-sub">Connect to your Sunshine / Moonlight instance through the WebSocket proxy.</div>
-        <div class="idle-steps">
-          <div class="step"><div class="step-num">1</div><span>Enter proxy WS URL (default: ws://localhost:8765)</span></div>
-          <div class="step"><div class="step-num">2</div><span>Enter your moonlight target URL (e.g. moon.holdheide.com)</span></div>
-          <div class="step"><div class="step-num">3</div><span>Click Connect → Load Stream</span></div>
+      <!-- Moonlight SPA loads here once connected + logged in -->
+      <iframe id="stream-frame" class="hidden"
+              sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-modals"
+              allow="autoplay; fullscreen; gamepad; keyboard-lock">
+      </iframe>
+
+      <!-- Auth modal (shown when server needs login) -->
+      <div id="auth-modal" class="hidden">
+        <div class="modal-card">
+          <div class="modal-title">Sign in to Moonlight</div>
+          <div class="modal-sub">Enter your moonlight-web-stream credentials</div>
+          <div class="form-row">
+            <label>Username</label>
+            <input id="auth-user" type="text" placeholder="username" autocomplete="username">
+          </div>
+          <div class="form-row">
+            <label>Password</label>
+            <input id="auth-pass" type="password" placeholder="password" autocomplete="current-password">
+          </div>
+          <div class="modal-err" id="auth-err"></div>
+          <div class="modal-actions">
+            <button class="btn btn-ghost" onclick="closeAuth()">Cancel</button>
+            <button class="btn btn-primary" id="btn-login" onclick="doLogin()">Login</button>
+          </div>
         </div>
       </div>
 
-      <!-- The proxied moonlight web app lives in here -->
-      <iframe id="stream-frame" class="hidden" sandbox="allow-scripts allow-same-origin allow-forms allow-popups"></iframe>
-    </div>
+      <!-- Welcome overlay -->
+      <div id="welcome">
+        <div class="wl-icon">🌙</div>
+        <div class="wl-title">Moonlight Web Proxy</div>
+        <div class="wl-sub">
+          A WebSocket bridge between this offline page and your
+          moonlight-web-stream server.
+        </div>
+        <div class="steps">
+          <div class="step"><div class="sn">1</div>
+            <div>Start <b>proxy-server.js</b> on your local machine<br><code style="color:var(--accent)">node proxy-server.js</code></div></div>
+          <div class="step"><div class="sn">2</div>
+            <div>Enter the proxy WS address and your <b>moonlight-web-stream</b> server URL (the Rust server running on port 8080)</div></div>
+          <div class="step"><div class="sn">3</div>
+            <div>Click <b>Connect</b>. The moonlight UI will load inside this page and all traffic tunnels through the proxy.</div></div>
+        </div>
+      </div>
 
-  </main>
+    </div>
+  </div>
 </div>
 
 <script>
-// ═══════════════════════════════════════════════════════════════════
-//  Moonlight Web WS Proxy — Client
-// ═══════════════════════════════════════════════════════════════════
+'use strict';
+// ══════════════════════════════════════════════════════════════════════════
+//  Moonlight Web — Proxy Client  v2.0
+//
+//  Architecture:
+//    client.html (file://)
+//      │
+//      ├─ WebSocket control channel  ──→  proxy-server.js (ws://localhost:8765)
+//      │    JSON message protocol:             │
+//      │     request / response           ─────┤──→ HTTP  → moonlight-web-stream
+//      │     stream_ws_open/send/close    ─────┤──→ WS    → /api/host/stream
+//      │                                       │          (WebRTC signaling)
+//      └─ <iframe> with patched globals ────────
+//           fetch, XHR, WebSocket all
+//           re-routed through postMessage
+//           → parent → proxy WS
+//
+//  The iframe runs the REAL moonlight-web SPA. It has no idea it's proxied.
+// ══════════════════════════════════════════════════════════════════════════
 
 const $ = id => document.getElementById(id);
 
-// ── State ──────────────────────────────────────────────────────────
-let ws = null;
-let pendingRequests = new Map(); // reqId → { resolve, reject }
-let reqCounter = 0;
-let reqCount = 0;
-let connected = false;
+// ── State ─────────────────────────────────────────────────────────────────
+let proxyWs      = null;
 let targetOrigin = '';
-let pingInterval = null;
-let pingStart = 0;
+let connected    = false;
+let reqId        = 0;
+let reqCount     = 0;
+let pending      = {};   // id → { resolve, reject }
+let pingTs       = 0;
+let pingTimer    = null;
+let sessionCookies = {}; // track cookies from responses
 
-// ── Log ────────────────────────────────────────────────────────────
+// ── Logging ───────────────────────────────────────────────────────────────
 function log(msg, level = 'data') {
   const el = document.createElement('div');
-  el.className = `log-entry ${level}`;
+  el.className = 'le ' + level;
   const now = new Date();
-  const ts = `${now.getHours().toString().padStart(2,'0')}:${now.getMinutes().toString().padStart(2,'0')}:${now.getSeconds().toString().padStart(2,'0')}`;
-  el.innerHTML = `<span class="log-time">${ts}</span><span class="log-msg">${msg}</span>`;
-  const logEl = $('log');
-  logEl.appendChild(el);
-  logEl.scrollTop = logEl.scrollHeight;
+  const ts  = [now.getHours(), now.getMinutes(), now.getSeconds()]
+               .map(n => String(n).padStart(2,'0')).join(':');
+  el.innerHTML = `<span class="le-t">${ts}</span><span class="le-m">${msg}</span>`;
+  $('log').appendChild(el);
+  $('log').scrollTop = $('log').scrollHeight;
 }
 
-// ── Status pill ────────────────────────────────────────────────────
-function setStatus(state, text) {
-  const pill = $('status-pill');
-  pill.className = `status-pill ${state}`;
-  $('status-text').textContent = text;
+// ── Status pill ───────────────────────────────────────────────────────────
+function setStatus(state, txt) {
+  $('pill').className = 'pill ' + state;
+  $('pill-txt').textContent = txt;
 }
 
-// ── Connect to proxy WS ────────────────────────────────────────────
-function connectProxy() {
-  const proxyUrl = $('proxy-url').value.trim();
-  const targetUrl = $('target-url').value.trim();
+// ── Proxy WS send ─────────────────────────────────────────────────────────
+function pSend(obj) {
+  if (proxyWs && proxyWs.readyState === WebSocket.OPEN)
+    proxyWs.send(JSON.stringify(obj));
+}
 
-  if (!proxyUrl) return alert('Enter the proxy WebSocket URL');
-  if (!targetUrl) return alert('Enter the target moonlight URL');
+// ── Connect to proxy ──────────────────────────────────────────────────────
+function doConnect() {
+  const proxyUrl = $('inp-proxy').value.trim();
+  let   tgtUrl   = $('inp-target').value.trim();
+  if (!proxyUrl || !tgtUrl) return;
+  if (!tgtUrl.startsWith('http')) tgtUrl = 'https://' + tgtUrl;
 
-  log(`Connecting to proxy: ${proxyUrl}`, 'info');
+  log(`Connecting proxy → ${proxyUrl}`, 'info');
   setStatus('connecting', 'Connecting…');
+  $('btn-connect').disabled = true;
 
-  ws = new WebSocket(proxyUrl);
+  proxyWs = new WebSocket(proxyUrl);
 
-  ws.onopen = () => {
+  proxyWs.onopen = () => {
     log('Proxy WS open', 'ok');
-    $('inf-ws').textContent = 'Connected';
-    $('inf-ws').className = 'info-val good';
-    $('inf-proxy').textContent = proxyUrl;
+    $('inf-ws').textContent    = proxyUrl;
+    $('inf-ws').className      = 'kv-v ok';
+    $('inf-state').textContent = 'proxy connected';
 
-    // Ask proxy to connect to target
-    const rawTarget = targetUrl.startsWith('http') ? targetUrl : 'https://' + targetUrl;
-    targetOrigin = rawTarget;
-    log(`Requesting connection to: ${rawTarget}`, 'info');
-    wsSend({ type: 'connect', url: rawTarget });
+    // Tell proxy to reach the moonlight server
+    pSend({ type: 'connect', url: tgtUrl });
 
-    // Ping loop
-    pingInterval = setInterval(() => {
-      pingStart = Date.now();
-      wsSend({ type: 'ping' });
+    // Keepalive ping
+    pingTimer = setInterval(() => {
+      pingTs = Date.now();
+      pSend({ type: 'ping' });
     }, 5000);
   };
 
-  ws.onmessage = e => handleMessage(JSON.parse(e.data));
+  proxyWs.onmessage = e => handleProxyMsg(JSON.parse(e.data));
 
-  ws.onclose = () => {
+  proxyWs.onclose = () => {
     log('Proxy WS closed', 'warn');
-    onDisconnected();
+    onDisconnect();
   };
 
-  ws.onerror = err => {
-    log(`WS error: check proxy is running (node proxy-server.js)`, 'error');
-    onDisconnected();
+  proxyWs.onerror = () => {
+    log('Cannot reach proxy — is proxy-server.js running?', 'err');
+    onDisconnect();
   };
 }
 
-function wsSend(obj) {
-  if (ws && ws.readyState === WebSocket.OPEN) {
-    ws.send(JSON.stringify(obj));
+function onDisconnect() {
+  connected = false;
+  clearInterval(pingTimer);
+  setStatus('idle', 'Idle');
+  $('btn-connect').disabled  = false;
+  $('btn-connect').classList.remove('hidden');
+  $('btn-disconnect').classList.add('hidden');
+  $('btn-open').classList.add('hidden');
+  $('inf-state').textContent = 'disconnected';
+  $('inf-state').className   = 'kv-v bad';
+  Object.values(pending).forEach(p => p.reject(new Error('disconnected')));
+  pending = {};
+}
+
+function doDisconnect() {
+  if (proxyWs) { proxyWs.close(); proxyWs = null; }
+  onDisconnect();
+}
+
+// ── Handle messages from proxy ────────────────────────────────────────────
+function handleProxyMsg(msg) {
+  switch (msg.type) {
+
+    case 'ready':
+      log(`Proxy ready (v${msg.version})`, 'ok');
+      break;
+
+    case 'pong':
+      $('inf-rtt').textContent = (Date.now() - pingTs) + 'ms';
+      break;
+
+    case 'connected': {
+      connected      = true;
+      targetOrigin   = msg.origin;
+      $('inf-tgt').textContent      = msg.origin;
+      $('inf-tgt').className        = 'kv-v ok';
+      $('inf-state').textContent    = 'connected';
+      $('inf-state').className      = 'kv-v ok';
+      $('stream-url-txt').textContent = msg.origin;
+      $('btn-connect').classList.add('hidden');
+      $('btn-disconnect').classList.remove('hidden');
+      $('btn-open').classList.remove('hidden');
+      setStatus('connected', 'Connected');
+      log(`Reached ${msg.origin}  (HTTP ${msg.rootStatus})`, 'ok');
+
+      if (msg.userInfo) {
+        // Already have a session
+        $('inf-user').textContent  = msg.userInfo.username || '—';
+        $('inf-admin').textContent = msg.userInfo.is_admin ? 'yes' : 'no';
+        log(`Session active: ${msg.userInfo.username}`, 'ok');
+      } else {
+        log('No active session — login required', 'warn');
+        showAuth();
+      }
+      break;
+    }
+
+    case 'response': {
+      const p = pending[msg.id];
+      if (!p) break;
+      delete pending[msg.id];
+      if (msg.error) p.reject(new Error(msg.error));
+      else           p.resolve(msg);
+      break;
+    }
+
+    // ── WebRTC signaling WS bridging ─────────────────────────────────────
+    case 'stream_ws_open':
+      log('Stream WS open (WebRTC signaling)', 'ok');
+      $('inf-sws').textContent = 'open';
+      $('inf-sws').className   = 'kv-v ok';
+      framePost({ type: 'stream_ws_open' });
+      break;
+
+    case 'stream_ws_message':
+      framePost({ type: 'stream_ws_message', data: msg.data, binary: msg.binary });
+      break;
+
+    case 'stream_ws_closed':
+      log(`Stream WS closed (${msg.code})`, 'warn');
+      $('inf-sws').textContent = 'closed';
+      $('inf-sws').className   = 'kv-v dim';
+      framePost({ type: 'stream_ws_closed', code: msg.code });
+      break;
+
+    case 'stream_ws_error':
+      log(`Stream WS error: ${msg.message}`, 'err');
+      framePost({ type: 'stream_ws_error', message: msg.message });
+      break;
+
+    case 'error':
+      log(`Proxy: ${msg.message}`, 'err');
+      break;
   }
 }
 
-function disconnectProxy() {
-  if (ws) { ws.close(); ws = null; }
-  clearInterval(pingInterval);
-  onDisconnected();
-}
-
-function onDisconnected() {
-  connected = false;
-  clearInterval(pingInterval);
-  setStatus('idle', 'Idle');
-  $('btn-connect').classList.remove('hidden');
-  $('btn-disconnect').classList.add('hidden');
-  $('btn-load-stream').disabled = true;
-  $('inf-ws').textContent = 'Disconnected';
-  $('inf-ws').className = 'info-val bad';
-  pendingRequests.forEach(({ reject }) => reject(new Error('Disconnected')));
-  pendingRequests.clear();
-}
-
-// ── Proxy fetch helper (used by injected iframe script) ────────────
-function proxyRequest(url, method, headers, body) {
+// ── proxyFetch — used by iframe relay ────────────────────────────────────
+function proxyFetch(reqUrl, method, headers, body) {
   return new Promise((resolve, reject) => {
-    const id = `req_${++reqCounter}`;
-    pendingRequests.set(id, { resolve, reject });
+    const id = 'r' + (++reqId);
+    pending[id] = { resolve, reject };
     reqCount++;
     $('inf-reqs').textContent = reqCount;
-    wsSend({ type: 'request', id, url, method: method || 'GET', headers: headers || {}, body: body || null });
-
-    // Timeout after 30s
+    pSend({ type: 'request', id, url: reqUrl, method: method||'GET',
+            headers: headers||{}, body: body||null });
     setTimeout(() => {
-      if (pendingRequests.has(id)) {
-        pendingRequests.delete(id);
-        reject(new Error('Request timeout'));
-      }
+      if (pending[id]) { delete pending[id]; reject(new Error('timeout')); }
     }, 30000);
   });
 }
 
-// ── Message router ─────────────────────────────────────────────────
-function handleMessage(msg) {
-  switch (msg.type) {
+// ── Auth modal ────────────────────────────────────────────────────────────
+function showAuth() {
+  $('auth-modal').classList.remove('hidden');
+  setTimeout(() => $('auth-user').focus(), 50);
+}
+function closeAuth() { $('auth-modal').classList.add('hidden'); }
 
-    case 'ready':
-      log(`Proxy ready`, 'ok');
-      break;
-
-    case 'pong':
-      const lat = Date.now() - pingStart;
-      $('inf-lat').textContent = `${lat}ms`;
-      break;
-
-    case 'connected':
-      connected = true;
-      targetOrigin = msg.origin;
-      log(`Connected to ${msg.origin} (HTTP ${msg.rootStatus})`, 'ok');
-      setStatus('connected', 'Connected');
-      $('btn-connect').classList.add('hidden');
-      $('btn-disconnect').classList.remove('hidden');
-      $('btn-load-stream').disabled = false;
-      $('inf-target').textContent = msg.origin;
-      $('stream-url-label').textContent = msg.origin;
-
-      if (msg.serverInfo) {
-        log(`Server info found at ${msg.serverInfo.endpoint}`, 'ok');
-        $('inf-srvstatus').textContent = `HTTP ${msg.serverInfo.status}`;
-        $('inf-srvstatus').className = 'info-val good';
-        $('inf-srvep').textContent = msg.serverInfo.endpoint;
-        try {
-          // Try to parse XML or JSON server info
-          const raw = msg.serverInfo.raw;
-          if (raw.includes('<') || raw.includes('{')) {
-            log(`ServerInfo: ${raw.slice(0, 120)}…`, 'data');
-          }
-        } catch {}
-      } else {
-        log(`No /serverinfo endpoint found — may still stream`, 'warn');
-        $('inf-srvstatus').textContent = 'N/A';
-      }
-      break;
-
-    case 'response': {
-      const pending = pendingRequests.get(msg.id);
-      if (!pending) break;
-      pendingRequests.delete(msg.id);
-      if (msg.error) {
-        log(`← ERR [${msg.id}] ${msg.error}`, 'error');
-        pending.reject(new Error(msg.error));
-      } else {
-        log(`← ${msg.status} [${msg.id}]`, msg.status < 400 ? 'data' : 'warn');
-        pending.resolve(msg);
-      }
-      break;
+async function doLogin() {
+  const user = $('auth-user').value.trim();
+  const pass = $('auth-pass').value;
+  $('auth-err').textContent = '';
+  $('btn-login').disabled   = true;
+  try {
+    const resp = await proxyFetch(
+      targetOrigin + '/api/user/login', 'POST',
+      { 'content-type': 'application/json', accept: 'application/json' },
+      JSON.stringify({ username: user, password: pass })
+    );
+    if (resp.status === 200) {
+      const data = JSON.parse(resp.body);
+      $('inf-user').textContent  = data.username || user;
+      $('inf-admin').textContent = data.is_admin ? 'yes' : 'no';
+      log(`Logged in as ${user}`, 'ok');
+      closeAuth();
+    } else {
+      $('auth-err').textContent = `Login failed (HTTP ${resp.status})`;
     }
-
-    // Upstream WS bridging
-    case 'ws_connected':
-      log(`Upstream WS connected: ${msg.url}`, 'ok');
-      window._moonlightWsOpen = true;
-      dispatchToFrame({ type: 'ws_connected' });
-      break;
-
-    case 'ws_message':
-      dispatchToFrame({ type: 'ws_message', data: msg.data });
-      break;
-
-    case 'ws_closed':
-      log(`Upstream WS closed (${msg.code})`, 'warn');
-      window._moonlightWsOpen = false;
-      dispatchToFrame({ type: 'ws_closed', code: msg.code });
-      break;
-
-    case 'ws_error':
-      log(`Upstream WS error: ${msg.message}`, 'error');
-      dispatchToFrame({ type: 'ws_error', message: msg.message });
-      break;
-
-    case 'error':
-      log(`Proxy error: ${msg.message}`, 'error');
-      break;
+  } catch (err) {
+    $('auth-err').textContent = err.message;
   }
+  $('btn-login').disabled = false;
 }
 
-// ── Dispatch messages to the iframe ───────────────────────────────
-function dispatchToFrame(msg) {
-  const frame = $('stream-frame');
-  if (frame && frame.contentWindow) {
-    frame.contentWindow.postMessage({ __moonlightProxy: true, ...msg }, '*');
-  }
-}
-
-// ── Load moonlight stream into iframe ─────────────────────────────
-async function loadStream() {
+// ── Load moonlight SPA into iframe ────────────────────────────────────────
+async function openUI() {
   if (!connected) return;
-
-  log(`Fetching ${targetOrigin}/...`, 'info');
-  $('btn-load-stream').disabled = true;
-  $('btn-load-stream').textContent = 'Loading…';
+  log('Fetching moonlight SPA…', 'info');
 
   try {
-    const resp = await proxyRequest(targetOrigin + '/', 'GET', { accept: 'text/html' }, null);
-
-    if (resp.status !== 200) {
-      log(`Failed to fetch root page: HTTP ${resp.status}`, 'error');
-      $('btn-load-stream').disabled = false;
-      $('btn-load-stream').textContent = 'Load Stream';
-      return;
+    const r = await proxyFetch(targetOrigin + '/', 'GET',
+                               { accept: 'text/html' }, null);
+    if (r.status !== 200) {
+      log(`Root page returned HTTP ${r.status}`, 'err'); return;
     }
 
-    // Inject our proxy script into the HTML before injecting into the iframe
-    let html = resp.body;
-    const proxyScript = buildProxyScript();
+    // Inject proxy shim before </head>
+    const shim = `<script id="__proxy-shim">${buildShim()}<\/script>`;
+    let html = r.body;
 
-    // Inject right after <head> or at the top
-    const headIdx = html.toLowerCase().indexOf('<head>');
-    if (headIdx !== -1) {
-      html = html.slice(0, headIdx + 6) + `\n<script>${proxyScript}</scr` + `ipt>\n` + html.slice(headIdx + 6);
-    } else {
-      html = `<script>${proxyScript}</scr` + `ipt>` + html;
-    }
+    // Rewrite asset URLs to absolute (img src, link href, script src)
+    html = html.replace(
+      /(\s(?:src|href|action)=["'])(?!https?:|\/\/|data:|#|javascript)([^"']*["'])/gi,
+      (_, attr, rest) => {
+        const path = rest.slice(0, -1);
+        const quote = rest.slice(-1);
+        const abs = path.startsWith('/')
+          ? targetOrigin + path
+          : targetOrigin + '/' + path;
+        return attr + abs + quote;
+      }
+    );
 
-    // Also rewrite relative URLs → absolute so the page can request them
-    html = html.replace(/(src|href)=["'](?!http|\/\/|data:|#)([^"']+)["']/gi,
-      (_, attr, path) => `${attr}="${targetOrigin}/${path.replace(/^\//, '')}"`);
+    // Insert shim
+    const headClose = html.toLowerCase().lastIndexOf('</head>');
+    html = headClose !== -1
+      ? html.slice(0, headClose) + shim + html.slice(headClose)
+      : shim + html;
+
+    const blob    = new Blob([html], { type: 'text/html' });
+    const blobUrl = URL.createObjectURL(blob);
 
     const frame = $('stream-frame');
-    const blob = new Blob([html], { type: 'text/html' });
-    const blobUrl = URL.createObjectURL(blob);
     frame.src = blobUrl;
-
-    $('idle-overlay').classList.add('hidden');
     frame.classList.remove('hidden');
-    $('btn-fullscreen').classList.remove('hidden');
-    $('btn-load-stream').textContent = 'Reload';
-    $('btn-load-stream').disabled = false;
-    log(`Stream frame loaded`, 'ok');
-
+    $('welcome').classList.add('hidden');
+    $('btn-fs').style.display = '';
+    log('Moonlight UI loaded', 'ok');
   } catch (err) {
-    log(`Load error: ${err.message}`, 'error');
-    $('btn-load-stream').disabled = false;
-    $('btn-load-stream').textContent = 'Load Stream';
+    log('Failed to load UI: ' + err.message, 'err');
   }
 }
 
-// ── Build the script injected into the iframe ──────────────────────
-// This overrides fetch + XHR + WebSocket inside the iframe to tunnel
-// everything through postMessage → parent → WebSocket proxy
-function buildProxyScript() {
+// ── relay postMessages from iframe → proxy ────────────────────────────────
+window.addEventListener('message', e => {
+  const d = e.data;
+  if (!d || !d.__mlp) return;
+
+  switch (d.type) {
+    case 'request':
+      proxyFetch(d.url, d.method, d.headers, d.body)
+        .then(r  => framePost({ __mlp:true, type:'response', id:d.id,
+                                status:r.status, headers:r.headers,
+                                body:r.body, encoding:r.encoding }))
+        .catch(er => framePost({ __mlp:true, type:'response', id:d.id, error:er.message }));
+      break;
+    case 'stream_ws_open':
+      pSend({ type:'stream_ws_open', url: d.url, protocols: d.protocols });
+      break;
+    case 'stream_ws_send':
+      pSend({ type:'stream_ws_send', data: d.data, binary: d.binary||false });
+      break;
+    case 'stream_ws_close':
+      pSend({ type:'stream_ws_close' });
+      break;
+  }
+});
+
+function framePost(obj) {
+  const f = $('stream-frame');
+  if (f && f.contentWindow)
+    f.contentWindow.postMessage({ __mlp:true, ...obj }, '*');
+}
+
+// ── Shim injected into the moonlight SPA iframe ───────────────────────────
+// Overrides fetch, XMLHttpRequest, WebSocket so every network call
+// goes through postMessage → parent → proxy WebSocket → moonlight server.
+function buildShim() {
   return `
-(function() {
-  'use strict';
-  const BASE = ${JSON.stringify(targetOrigin)};
+(function(){
+'use strict';
+const BASE = ${JSON.stringify(targetOrigin)};
 
-  function resolve(u) {
-    if (!u) return u;
-    if (u.startsWith('http')) return u;
-    if (u.startsWith('//')) return 'https:' + u;
-    return BASE + (u.startsWith('/') ? u : '/' + u);
-  }
+function abs(u) {
+  if (!u) return u;
+  if (u.startsWith('http')) return u;
+  if (u.startsWith('//')) return location.protocol + u;
+  if (u.startsWith('/')) return BASE + u;
+  return BASE + '/' + u;
+}
 
-  // ── postMessage channel to parent ──────────────────────────────────
-  let _reqId = 0;
-  const _pending = {};
-
-  window.addEventListener('message', e => {
-    const d = e.data;
-    if (!d || !d.__moonlightProxy) return;
-    switch (d.type) {
-      case 'response': {
-        const p = _pending[d.id];
-        if (!p) return;
-        delete _pending[d.id];
-        if (d.error) p.reject(new Error(d.error));
-        else p.resolve(d);
-        break;
-      }
-      case 'ws_connected':
-        _wsDispatch('open', null);
-        break;
-      case 'ws_message':
-        _wsDispatch('message', d.data);
-        break;
-      case 'ws_closed':
-        _wsDispatch('close', d.code);
-        break;
-      case 'ws_error':
-        _wsDispatch('error', d.message);
-        break;
+// ── postMessage channel ──────────────────────────────────────────────────
+let _rid = 0;
+const _pend = {};
+window.addEventListener('message', e => {
+  const d = e.data;
+  if (!d || !d.__mlp) return;
+  switch (d.type) {
+    case 'response': {
+      const p = _pend[d.id];
+      if (!p) return;
+      delete _pend[d.id];
+      d.error ? p.rej(new Error(d.error)) : p.res(d);
+      break;
     }
+    case 'stream_ws_open':    _wsEvent('open',    null);         break;
+    case 'stream_ws_message': _wsEvent('message', d.data, d.binary); break;
+    case 'stream_ws_closed':  _wsEvent('close',   d.code);      break;
+    case 'stream_ws_error':   _wsEvent('error',   d.message);   break;
+  }
+});
+
+function _req(url, method, headers, body) {
+  return new Promise((res, rej) => {
+    const id = 'f'+(++_rid);
+    _pend[id] = {res,rej};
+    parent.postMessage({ __mlp:true, type:'request', id, url, method, headers, body }, '*');
+    setTimeout(() => { if(_pend[id]){ delete _pend[id]; rej(new Error('timeout')); } }, 30000);
   });
+}
 
-  function proxyReq(url, method, headers, body) {
-    return new Promise((resolve, reject) => {
-      const id = 'f' + (++_reqId);
-      _pending[id] = { resolve, reject };
-      parent.postMessage({ __moonlightProxy: true, type: 'request', id, url, method, headers, body }, '*');
-      setTimeout(() => {
-        if (_pending[id]) { delete _pending[id]; reject(new Error('timeout')); }
-      }, 30000);
-    });
+// ── fetch override ───────────────────────────────────────────────────────
+window.fetch = async function(input, init={}) {
+  const url    = abs(typeof input==='string' ? input : input.url);
+  const method = init.method || (input.method) || 'GET';
+  let   headers = {};
+  if (init.headers) {
+    const h = init.headers;
+    headers = h instanceof Headers
+      ? Object.fromEntries(h.entries())
+      : (Array.isArray(h) ? Object.fromEntries(h) : {...h});
+  }
+  let body = null;
+  if (init.body != null) {
+    body = typeof init.body === 'string' ? init.body
+         : init.body instanceof URLSearchParams ? init.body.toString()
+         : null;
   }
 
-  // ── Override fetch ─────────────────────────────────────────────────
-  const _origFetch = window.fetch;
-  window.fetch = async function(input, init) {
-    const url = resolve(typeof input === 'string' ? input : input.url);
-    const method = (init && init.method) || 'GET';
-    const headers = (init && init.headers) ? Object.fromEntries(
-      init.headers instanceof Headers ? init.headers.entries() : Object.entries(init.headers)
-    ) : {};
-    let body = null;
-    if (init && init.body) {
-      if (typeof init.body === 'string') body = init.body;
-      else {
-        try { body = await new Response(init.body).text(); } catch { body = null; }
-      }
-    }
+  const r = await _req(url, method, headers, body);
 
-    try {
-      const resp = await proxyReq(url, method, headers, body);
-      const bodyStr = resp.encoding === 'base64'
-        ? Uint8Array.from(atob(resp.body), c => c.charCodeAt(0))
-        : resp.body;
-      return new Response(bodyStr, {
-        status: resp.status,
-        headers: resp.headers || {}
-      });
-    } catch (err) {
-      throw err;
-    }
-  };
-
-  // ── Override XMLHttpRequest ────────────────────────────────────────
-  const _OrigXHR = window.XMLHttpRequest;
-  window.XMLHttpRequest = function() {
-    const xhr = new _OrigXHR();
-    let _method, _url, _headers = {};
-    const _fake = {
-      readyState: 0, status: 0, statusText: '', responseText: '', response: null,
-      onreadystatechange: null, onload: null, onerror: null, ontimeout: null,
-      open(method, url) { _method = method; _url = resolve(url); _fake.readyState = 1; },
-      setRequestHeader(k, v) { _headers[k] = v; },
-      send(body) {
-        const b = body ? (typeof body === 'string' ? body : null) : null;
-        proxyReq(_url, _method, _headers, b)
-          .then(resp => {
-            _fake.status = resp.status;
-            _fake.statusText = 'OK';
-            _fake.responseText = resp.body;
-            _fake.response = resp.body;
-            _fake.readyState = 4;
-            if (_fake.onreadystatechange) _fake.onreadystatechange();
-            if (_fake.onload) _fake.onload({ target: _fake });
-          })
-          .catch(err => {
-            if (_fake.onerror) _fake.onerror(err);
-          });
-      },
-      abort() {},
-      getResponseHeader(k) { return null; },
-      getAllResponseHeaders() { return ''; },
-      overrideMimeType() {},
-      withCredentials: false,
-    };
-    return _fake;
-  };
-
-  // ── Override WebSocket ─────────────────────────────────────────────
-  let _wsListeners = {};
-  function _wsDispatch(event, data) {
-    const listeners = _wsListeners[event] || [];
-    listeners.forEach(fn => {
-      if (event === 'message') fn({ data });
-      else if (event === 'open') fn({ type: 'open' });
-      else if (event === 'close') fn({ type: 'close', code: data });
-      else fn({ type: event, message: data });
-    });
+  let respBody;
+  if (r.encoding === 'base64') {
+    const bin = atob(r.body);
+    const arr = new Uint8Array(bin.length);
+    for (let i=0;i<bin.length;i++) arr[i]=bin.charCodeAt(i);
+    respBody = arr.buffer;
+  } else {
+    respBody = r.body;
   }
 
-  const _OrigWS = window.WebSocket;
-  window.WebSocket = function(url, protocols) {
-    const wsUrl = url.startsWith('ws') ? url : BASE.replace(/^http/, 'ws') + url;
-    parent.postMessage({ __moonlightProxy: true, type: 'ws_connect', url: wsUrl }, '*');
+  // Reconstruct Headers (strip problematic ones the browser blocks)
+  const respHeaders = {};
+  for (const [k,v] of Object.entries(r.headers||{})) {
+    const kl = k.toLowerCase();
+    if (kl==='transfer-encoding'||kl==='content-encoding') continue;
+    respHeaders[k] = Array.isArray(v) ? v.join(', ') : v;
+  }
 
-    const fake = {
-      url: wsUrl, readyState: 0,
-      CONNECTING: 0, OPEN: 1, CLOSING: 2, CLOSED: 3,
-      onopen: null, onmessage: null, onclose: null, onerror: null,
-      send(data) {
-        parent.postMessage({ __moonlightProxy: true, type: 'ws_send', data }, '*');
-      },
-      close() {
-        parent.postMessage({ __moonlightProxy: true, type: 'ws_close' }, '*');
-      },
-      addEventListener(event, fn) {
-        if (!_wsListeners[event]) _wsListeners[event] = [];
-        _wsListeners[event].push(fn);
-      },
-      removeEventListener(event, fn) {
-        if (_wsListeners[event]) {
-          _wsListeners[event] = _wsListeners[event].filter(f => f !== fn);
-        }
-      }
-    };
+  return new Response(respBody, { status: r.status, headers: respHeaders });
+};
 
-    // Wire onX handlers into the dispatch system
-    _wsListeners.open   = [e => { fake.readyState = 1; if (fake.onopen)    fake.onopen(e);    }];
-    _wsListeners.message= [e => {                       if (fake.onmessage) fake.onmessage(e); }];
-    _wsListeners.close  = [e => { fake.readyState = 3; if (fake.onclose)   fake.onclose(e);   }];
-    _wsListeners.error  = [e => {                       if (fake.onerror)   fake.onerror(e);   }];
-
-    return fake;
+// ── XMLHttpRequest override ──────────────────────────────────────────────
+const _XHR = window.XMLHttpRequest;
+window.XMLHttpRequest = function() {
+  let _m, _u, _hdrs={};
+  const fake = {
+    readyState:0, status:0, statusText:'', responseText:'', response:null,
+    onreadystatechange:null, onload:null, onerror:null, ontimeout:null,
+    withCredentials:false, responseType:'',
+    open(m,u){ _m=m; _u=abs(u); fake.readyState=1; },
+    setRequestHeader(k,v){ _hdrs[k]=v; },
+    send(body) {
+      const b = body==null ? null
+              : typeof body==='string' ? body
+              : body instanceof URLSearchParams ? body.toString()
+              : null;
+      _req(_u,_m,_hdrs,b)
+        .then(r=>{
+          fake.status=r.status; fake.statusText='OK';
+          fake.responseText=r.body; fake.response=r.body; fake.readyState=4;
+          if (fake.onreadystatechange) fake.onreadystatechange();
+          if (fake.onload) fake.onload({target:fake});
+        })
+        .catch(err=>{ if(fake.onerror) fake.onerror(err); });
+    },
+    abort(){},
+    getResponseHeader(){ return null; },
+    getAllResponseHeaders(){ return ''; },
+    overrideMimeType(){},
+    addEventListener(ev, fn){ fake['on'+ev]=fn; },
+    removeEventListener(){},
   };
-  window.WebSocket.CONNECTING = 0;
-  window.WebSocket.OPEN       = 1;
-  window.WebSocket.CLOSING    = 2;
-  window.WebSocket.CLOSED     = 3;
+  return fake;
+};
 
-  console.log('[moonlight-proxy] fetch + XHR + WebSocket patched');
+// ── WebSocket override ───────────────────────────────────────────────────
+// Intercepts ONLY the /api/host/stream WebSocket (WebRTC signaling).
+// Other WS calls are also bridged transparently.
+
+const _evts = {};
+function _wsEvent(ev, data, binary=false) {
+  const lst = _evts[ev]||[];
+  lst.forEach(fn => {
+    if (ev==='message') {
+      fn({data: binary
+        ? (()=>{const b=atob(data);const a=new Uint8Array(b.length);for(let i=0;i<b.length;i++)a[i]=b.charCodeAt(i);return a.buffer;})()
+        : data});
+    } else if (ev==='open')  { fn({type:'open'}); }
+    else if (ev==='close') { fn({type:'close', code:data}); }
+    else                   { fn({type:ev, message:data}); }
+  });
+}
+
+const _OrigWS = window.WebSocket;
+window.WebSocket = function(wsUrl, protocols) {
+  const fullUrl = wsUrl.startsWith('ws') ? wsUrl
+    : BASE.replace(/^https?/,p=>p.replace('http','ws')) + (wsUrl.startsWith('/')?wsUrl:'/'+wsUrl);
+
+  parent.postMessage({ __mlp:true, type:'stream_ws_open',
+                       url: fullUrl, protocols: protocols||[] }, '*');
+
+  const fake = {
+    url:fullUrl, readyState:0,
+    CONNECTING:0, OPEN:1, CLOSING:2, CLOSED:3,
+    onopen:null, onmessage:null, onclose:null, onerror:null, binaryType:'arraybuffer',
+    send(data) {
+      if (data instanceof ArrayBuffer || ArrayBuffer.isView(data)) {
+        const buf = data instanceof ArrayBuffer ? data : data.buffer;
+        const arr = new Uint8Array(buf);
+        let bin=''; for(let i=0;i<arr.length;i++) bin+=String.fromCharCode(arr[i]);
+        parent.postMessage({__mlp:true,type:'stream_ws_send',data:btoa(bin),binary:true},'*');
+      } else {
+        parent.postMessage({__mlp:true,type:'stream_ws_send',data:String(data),binary:false},'*');
+      }
+    },
+    close(){ parent.postMessage({__mlp:true,type:'stream_ws_close'},'*'); },
+    addEventListener(ev,fn){ (_evts[ev]||(_evts[ev]=[])).push(fn); },
+    removeEventListener(ev,fn){ if(_evts[ev]) _evts[ev]=_evts[ev].filter(f=>f!==fn); },
+  };
+
+  // Wire onX into dispatcher
+  _evts.open    = [e=>{ fake.readyState=1; if(fake.onopen)    fake.onopen(e);    }];
+  _evts.message = [e=>{ if(fake.onmessage) fake.onmessage(e); }];
+  _evts.close   = [e=>{ fake.readyState=3; if(fake.onclose)   fake.onclose(e);   }];
+  _evts.error   = [e=>{ if(fake.onerror)   fake.onerror(e);   }];
+
+  return fake;
+};
+window.WebSocket.CONNECTING=0; window.WebSocket.OPEN=1;
+window.WebSocket.CLOSING=2;    window.WebSocket.CLOSED=3;
+
+console.log('[moonlight-proxy] shim active — fetch/XHR/WebSocket patched');
 })();
   `;
 }
 
-// ── postMessage relay: iframe → proxy WS ──────────────────────────
-window.addEventListener('message', e => {
-  const d = e.data;
-  if (!d || !d.__moonlightProxy) return;
+// ── Fullscreen ────────────────────────────────────────────────────────────
+function goFullscreen() {
+  const f = $('stream-frame');
+  (f.requestFullscreen || f.webkitRequestFullscreen || f.mozRequestFullScreen)
+    .call(f);
+}
 
-  switch (d.type) {
-    case 'request':
-      // Forward HTTP request to proxy
-      proxyRequest(d.url, d.method, d.headers, d.body)
-        .then(resp => dispatchToFrame({ ...resp, type: 'response', id: d.id }))
-        .catch(err => dispatchToFrame({ type: 'response', id: d.id, error: err.message }));
-      break;
-    case 'ws_connect':
-      wsSend({ type: 'ws_connect', url: d.url });
-      break;
-    case 'ws_send':
-      wsSend({ type: 'ws_send', data: d.data });
-      break;
-    case 'ws_close':
-      wsSend({ type: 'ws_close' });
-      break;
-  }
-});
+// ── Wire buttons & Enter key ──────────────────────────────────────────────
+$('btn-connect').onclick    = doConnect;
+$('btn-disconnect').onclick = doDisconnect;
+$('btn-open').onclick       = openUI;
 
-// ── Fullscreen ────────────────────────────────────────────────────
-$('btn-fullscreen').onclick = () => {
-  const frame = $('stream-frame');
-  if (frame.requestFullscreen) frame.requestFullscreen();
-};
+[$('inp-proxy'), $('inp-target')].forEach(el =>
+  el.addEventListener('keydown', e => { if (e.key==='Enter') doConnect(); })
+);
+$('auth-pass').addEventListener('keydown', e => { if (e.key==='Enter') doLogin(); });
 
-// ── Wire up buttons ───────────────────────────────────────────────
-$('btn-connect').onclick = connectProxy;
-$('btn-disconnect').onclick = disconnectProxy;
-$('btn-load-stream').onclick = loadStream;
-
-// ── Enter key on inputs ───────────────────────────────────────────
-[$('proxy-url'), $('target-url')].forEach(el => {
-  el.addEventListener('keydown', e => {
-    if (e.key === 'Enter') connectProxy();
-  });
-});
-
-log('Proxy client ready. Enter URLs above and click Connect.', 'info');
+log('Ready — enter your proxy and moonlight server URL above.', 'info');
 </script>
 </body>
 </html>
