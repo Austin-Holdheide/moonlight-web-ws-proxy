@@ -1,0 +1,964 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Moonlight Web — WS Proxy</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Space+Mono:ital,wght@0,400;0,700;1,400&family=Syne:wght@400;600;700;800&display=swap');
+
+  :root {
+    --bg:       #0a0c0f;
+    --surface:  #111418;
+    --border:   #1e2530;
+    --accent:   #00d4ff;
+    --accent2:  #7b5cf8;
+    --green:    #00e887;
+    --red:      #ff4060;
+    --amber:    #ffb020;
+    --text:     #c8d8e8;
+    --muted:    #4a5568;
+    --glow:     0 0 20px rgba(0,212,255,0.15);
+  }
+
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  html, body {
+    height: 100%;
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'Space Mono', monospace;
+    font-size: 13px;
+    overflow: hidden;
+  }
+
+  /* ── Grain overlay ── */
+  body::before {
+    content: '';
+    position: fixed; inset: 0;
+    background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)' opacity='0.04'/%3E%3C/svg%3E");
+    pointer-events: none;
+    z-index: 9999;
+    opacity: 0.5;
+  }
+
+  #app {
+    display: grid;
+    grid-template-rows: auto 1fr;
+    height: 100vh;
+  }
+
+  /* ── Header ── */
+  header {
+    display: flex;
+    align-items: center;
+    gap: 20px;
+    padding: 14px 24px;
+    background: var(--surface);
+    border-bottom: 1px solid var(--border);
+    position: relative;
+  }
+
+  header::after {
+    content: '';
+    position: absolute;
+    bottom: -1px; left: 0; right: 0;
+    height: 1px;
+    background: linear-gradient(90deg, transparent, var(--accent), transparent);
+    opacity: 0.5;
+  }
+
+  .logo {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    text-decoration: none;
+  }
+
+  .logo-icon {
+    width: 32px; height: 32px;
+    background: linear-gradient(135deg, var(--accent), var(--accent2));
+    border-radius: 8px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 16px;
+    box-shadow: var(--glow);
+  }
+
+  .logo-text {
+    font-family: 'Syne', sans-serif;
+    font-weight: 800;
+    font-size: 15px;
+    color: #fff;
+    letter-spacing: -0.02em;
+  }
+
+  .logo-text span {
+    color: var(--accent);
+  }
+
+  .header-controls {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-left: auto;
+    flex-wrap: wrap;
+  }
+
+  .field-group {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+
+  .field-label {
+    color: var(--muted);
+    font-size: 11px;
+    white-space: nowrap;
+  }
+
+  input[type="text"] {
+    background: var(--bg);
+    border: 1px solid var(--border);
+    color: var(--text);
+    font-family: 'Space Mono', monospace;
+    font-size: 12px;
+    padding: 6px 10px;
+    border-radius: 6px;
+    outline: none;
+    transition: border-color 0.2s, box-shadow 0.2s;
+    width: 200px;
+  }
+
+  input[type="text"]:focus {
+    border-color: var(--accent);
+    box-shadow: 0 0 0 2px rgba(0,212,255,0.1);
+  }
+
+  input[type="text"]::placeholder { color: var(--muted); }
+
+  .btn {
+    font-family: 'Space Mono', monospace;
+    font-size: 12px;
+    font-weight: 700;
+    padding: 7px 18px;
+    border-radius: 6px;
+    border: none;
+    cursor: pointer;
+    transition: all 0.15s;
+    letter-spacing: 0.02em;
+    white-space: nowrap;
+  }
+
+  .btn-primary {
+    background: var(--accent);
+    color: #000;
+  }
+  .btn-primary:hover { background: #20ddff; box-shadow: 0 0 16px rgba(0,212,255,0.4); }
+  .btn-primary:active { transform: scale(0.97); }
+
+  .btn-danger {
+    background: transparent;
+    color: var(--red);
+    border: 1px solid rgba(255,64,96,0.4);
+  }
+  .btn-danger:hover { background: rgba(255,64,96,0.1); }
+
+  .btn:disabled { opacity: 0.4; cursor: not-allowed; }
+
+  .status-pill {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 12px;
+    border-radius: 999px;
+    font-size: 11px;
+    border: 1px solid var(--border);
+    background: var(--bg);
+    white-space: nowrap;
+  }
+
+  .status-dot {
+    width: 6px; height: 6px;
+    border-radius: 50%;
+    background: var(--muted);
+    transition: all 0.3s;
+  }
+  .status-pill.idle   .status-dot { background: var(--muted); }
+  .status-pill.connecting .status-dot { background: var(--amber); animation: pulse 1s infinite; }
+  .status-pill.connected  .status-dot { background: var(--green); box-shadow: 0 0 6px var(--green); }
+  .status-pill.error      .status-dot { background: var(--red); }
+
+  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.3} }
+
+  /* ── Main area ── */
+  main {
+    display: grid;
+    grid-template-columns: 280px 1fr;
+    overflow: hidden;
+  }
+
+  /* ── Sidebar ── */
+  .sidebar {
+    background: var(--surface);
+    border-right: 1px solid var(--border);
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+
+  .sidebar-section {
+    padding: 16px;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .section-title {
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.1em;
+    color: var(--muted);
+    text-transform: uppercase;
+    margin-bottom: 10px;
+  }
+
+  .info-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 5px 0;
+    border-bottom: 1px solid rgba(255,255,255,0.03);
+    font-size: 11px;
+  }
+
+  .info-key { color: var(--muted); }
+  .info-val { color: var(--text); font-size: 11px; text-align: right; word-break: break-all; max-width: 160px; }
+  .info-val.good { color: var(--green); }
+  .info-val.bad  { color: var(--red); }
+
+  /* ── Log ── */
+  .log-area {
+    flex: 1;
+    overflow-y: auto;
+    padding: 12px 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+  }
+
+  .log-entry {
+    font-size: 11px;
+    line-height: 1.5;
+    display: flex;
+    gap: 8px;
+    opacity: 0;
+    animation: fadeIn 0.2s forwards;
+  }
+
+  @keyframes fadeIn { to { opacity: 1; } }
+
+  .log-time { color: var(--muted); flex-shrink: 0; }
+  .log-msg  { color: var(--text); word-break: break-all; }
+  .log-entry.info  .log-msg { color: var(--accent); }
+  .log-entry.ok    .log-msg { color: var(--green); }
+  .log-entry.warn  .log-msg { color: var(--amber); }
+  .log-entry.error .log-msg { color: var(--red); }
+  .log-entry.data  .log-msg { color: #9ca3af; }
+
+  .log-area::-webkit-scrollbar { width: 4px; }
+  .log-area::-webkit-scrollbar-track { background: transparent; }
+  .log-area::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
+
+  /* ── Stream frame ── */
+  .stream-panel {
+    position: relative;
+    background: #000;
+    display: flex;
+    flex-direction: column;
+  }
+
+  .stream-toolbar {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 10px 16px;
+    background: rgba(17,20,24,0.9);
+    border-bottom: 1px solid var(--border);
+    backdrop-filter: blur(8px);
+    z-index: 10;
+  }
+
+  .stream-url {
+    font-size: 11px;
+    color: var(--muted);
+    flex: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .stream-url span { color: var(--accent); }
+
+  #stream-frame {
+    flex: 1;
+    border: none;
+    width: 100%;
+    background: #000;
+  }
+
+  /* ── Idle overlay ── */
+  .idle-overlay {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 20px;
+    background: radial-gradient(ellipse at 50% 60%, rgba(0,212,255,0.04) 0%, transparent 70%);
+  }
+
+  .idle-graphic {
+    width: 80px; height: 80px;
+    border: 1px solid var(--border);
+    border-radius: 20px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 36px;
+    background: var(--surface);
+    box-shadow: var(--glow);
+    animation: float 4s ease-in-out infinite;
+  }
+
+  @keyframes float {
+    0%,100% { transform: translateY(0); }
+    50%      { transform: translateY(-8px); }
+  }
+
+  .idle-title {
+    font-family: 'Syne', sans-serif;
+    font-weight: 700;
+    font-size: 18px;
+    color: #fff;
+    text-align: center;
+  }
+
+  .idle-sub {
+    font-size: 12px;
+    color: var(--muted);
+    text-align: center;
+    max-width: 300px;
+    line-height: 1.8;
+  }
+
+  .idle-steps {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    margin-top: 8px;
+  }
+
+  .step {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-size: 12px;
+    color: var(--muted);
+  }
+
+  .step-num {
+    width: 22px; height: 22px;
+    border-radius: 50%;
+    border: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 10px;
+    color: var(--accent);
+    flex-shrink: 0;
+  }
+
+  /* Fade */
+  .hidden { display: none !important; }
+</style>
+</head>
+<body>
+<div id="app">
+
+  <!-- ── Header ── -->
+  <header>
+    <a class="logo" href="#">
+      <div class="logo-icon">🌙</div>
+      <div class="logo-text">moonlight<span>·proxy</span></div>
+    </a>
+
+    <div class="header-controls">
+      <div class="field-group">
+        <span class="field-label">PROXY WS</span>
+        <input type="text" id="proxy-url" placeholder="ws://localhost:8765" value="ws://localhost:8765">
+      </div>
+
+      <div class="field-group">
+        <span class="field-label">TARGET</span>
+        <input type="text" id="target-url" placeholder="moon.holdheide.com" value="">
+      </div>
+
+      <button class="btn btn-primary" id="btn-connect">Connect</button>
+      <button class="btn btn-danger hidden" id="btn-disconnect">Disconnect</button>
+
+      <div class="status-pill idle" id="status-pill">
+        <div class="status-dot"></div>
+        <span id="status-text">Idle</span>
+      </div>
+    </div>
+  </header>
+
+  <!-- ── Main ── -->
+  <main>
+
+    <!-- ── Sidebar ── -->
+    <div class="sidebar">
+      <div class="sidebar-section">
+        <div class="section-title">Connection</div>
+        <div class="info-row"><span class="info-key">Proxy</span><span class="info-val" id="inf-proxy">—</span></div>
+        <div class="info-row"><span class="info-key">Target</span><span class="info-val" id="inf-target">—</span></div>
+        <div class="info-row"><span class="info-key">WS State</span><span class="info-val" id="inf-ws">Disconnected</span></div>
+        <div class="info-row"><span class="info-key">Requests</span><span class="info-val" id="inf-reqs">0</span></div>
+        <div class="info-row"><span class="info-key">Latency</span><span class="info-val" id="inf-lat">—</span></div>
+      </div>
+
+      <div class="sidebar-section">
+        <div class="section-title">Server Info</div>
+        <div id="server-info-rows">
+          <div class="info-row"><span class="info-key">Status</span><span class="info-val" id="inf-srvstatus">—</span></div>
+          <div class="info-row"><span class="info-key">Endpoint</span><span class="info-val" id="inf-srvep">—</span></div>
+        </div>
+      </div>
+
+      <div class="section-title" style="padding:12px 16px 4px">Log</div>
+      <div class="log-area" id="log"></div>
+    </div>
+
+    <!-- ── Stream panel ── -->
+    <div class="stream-panel">
+      <div class="stream-toolbar">
+        <div class="stream-url">Stream: <span id="stream-url-label">not connected</span></div>
+        <button class="btn btn-primary" id="btn-load-stream" disabled>Load Stream</button>
+        <button class="btn btn-danger hidden" id="btn-fullscreen">⛶ Fullscreen</button>
+      </div>
+
+      <!-- Idle overlay -->
+      <div class="idle-overlay" id="idle-overlay">
+        <div class="idle-graphic">🌙</div>
+        <div class="idle-title">Moonlight Web Proxy</div>
+        <div class="idle-sub">Connect to your Sunshine / Moonlight instance through the WebSocket proxy.</div>
+        <div class="idle-steps">
+          <div class="step"><div class="step-num">1</div><span>Enter proxy WS URL (default: ws://localhost:8765)</span></div>
+          <div class="step"><div class="step-num">2</div><span>Enter your moonlight target URL (e.g. moon.holdheide.com)</span></div>
+          <div class="step"><div class="step-num">3</div><span>Click Connect → Load Stream</span></div>
+        </div>
+      </div>
+
+      <!-- The proxied moonlight web app lives in here -->
+      <iframe id="stream-frame" class="hidden" sandbox="allow-scripts allow-same-origin allow-forms allow-popups"></iframe>
+    </div>
+
+  </main>
+</div>
+
+<script>
+// ═══════════════════════════════════════════════════════════════════
+//  Moonlight Web WS Proxy — Client
+// ═══════════════════════════════════════════════════════════════════
+
+const $ = id => document.getElementById(id);
+
+// ── State ──────────────────────────────────────────────────────────
+let ws = null;
+let pendingRequests = new Map(); // reqId → { resolve, reject }
+let reqCounter = 0;
+let reqCount = 0;
+let connected = false;
+let targetOrigin = '';
+let pingInterval = null;
+let pingStart = 0;
+
+// ── Log ────────────────────────────────────────────────────────────
+function log(msg, level = 'data') {
+  const el = document.createElement('div');
+  el.className = `log-entry ${level}`;
+  const now = new Date();
+  const ts = `${now.getHours().toString().padStart(2,'0')}:${now.getMinutes().toString().padStart(2,'0')}:${now.getSeconds().toString().padStart(2,'0')}`;
+  el.innerHTML = `<span class="log-time">${ts}</span><span class="log-msg">${msg}</span>`;
+  const logEl = $('log');
+  logEl.appendChild(el);
+  logEl.scrollTop = logEl.scrollHeight;
+}
+
+// ── Status pill ────────────────────────────────────────────────────
+function setStatus(state, text) {
+  const pill = $('status-pill');
+  pill.className = `status-pill ${state}`;
+  $('status-text').textContent = text;
+}
+
+// ── Connect to proxy WS ────────────────────────────────────────────
+function connectProxy() {
+  const proxyUrl = $('proxy-url').value.trim();
+  const targetUrl = $('target-url').value.trim();
+
+  if (!proxyUrl) return alert('Enter the proxy WebSocket URL');
+  if (!targetUrl) return alert('Enter the target moonlight URL');
+
+  log(`Connecting to proxy: ${proxyUrl}`, 'info');
+  setStatus('connecting', 'Connecting…');
+
+  ws = new WebSocket(proxyUrl);
+
+  ws.onopen = () => {
+    log('Proxy WS open', 'ok');
+    $('inf-ws').textContent = 'Connected';
+    $('inf-ws').className = 'info-val good';
+    $('inf-proxy').textContent = proxyUrl;
+
+    // Ask proxy to connect to target
+    const rawTarget = targetUrl.startsWith('http') ? targetUrl : 'https://' + targetUrl;
+    targetOrigin = rawTarget;
+    log(`Requesting connection to: ${rawTarget}`, 'info');
+    wsSend({ type: 'connect', url: rawTarget });
+
+    // Ping loop
+    pingInterval = setInterval(() => {
+      pingStart = Date.now();
+      wsSend({ type: 'ping' });
+    }, 5000);
+  };
+
+  ws.onmessage = e => handleMessage(JSON.parse(e.data));
+
+  ws.onclose = () => {
+    log('Proxy WS closed', 'warn');
+    onDisconnected();
+  };
+
+  ws.onerror = err => {
+    log(`WS error: check proxy is running (node proxy-server.js)`, 'error');
+    onDisconnected();
+  };
+}
+
+function wsSend(obj) {
+  if (ws && ws.readyState === WebSocket.OPEN) {
+    ws.send(JSON.stringify(obj));
+  }
+}
+
+function disconnectProxy() {
+  if (ws) { ws.close(); ws = null; }
+  clearInterval(pingInterval);
+  onDisconnected();
+}
+
+function onDisconnected() {
+  connected = false;
+  clearInterval(pingInterval);
+  setStatus('idle', 'Idle');
+  $('btn-connect').classList.remove('hidden');
+  $('btn-disconnect').classList.add('hidden');
+  $('btn-load-stream').disabled = true;
+  $('inf-ws').textContent = 'Disconnected';
+  $('inf-ws').className = 'info-val bad';
+  pendingRequests.forEach(({ reject }) => reject(new Error('Disconnected')));
+  pendingRequests.clear();
+}
+
+// ── Proxy fetch helper (used by injected iframe script) ────────────
+function proxyRequest(url, method, headers, body) {
+  return new Promise((resolve, reject) => {
+    const id = `req_${++reqCounter}`;
+    pendingRequests.set(id, { resolve, reject });
+    reqCount++;
+    $('inf-reqs').textContent = reqCount;
+    wsSend({ type: 'request', id, url, method: method || 'GET', headers: headers || {}, body: body || null });
+
+    // Timeout after 30s
+    setTimeout(() => {
+      if (pendingRequests.has(id)) {
+        pendingRequests.delete(id);
+        reject(new Error('Request timeout'));
+      }
+    }, 30000);
+  });
+}
+
+// ── Message router ─────────────────────────────────────────────────
+function handleMessage(msg) {
+  switch (msg.type) {
+
+    case 'ready':
+      log(`Proxy ready`, 'ok');
+      break;
+
+    case 'pong':
+      const lat = Date.now() - pingStart;
+      $('inf-lat').textContent = `${lat}ms`;
+      break;
+
+    case 'connected':
+      connected = true;
+      targetOrigin = msg.origin;
+      log(`Connected to ${msg.origin} (HTTP ${msg.rootStatus})`, 'ok');
+      setStatus('connected', 'Connected');
+      $('btn-connect').classList.add('hidden');
+      $('btn-disconnect').classList.remove('hidden');
+      $('btn-load-stream').disabled = false;
+      $('inf-target').textContent = msg.origin;
+      $('stream-url-label').textContent = msg.origin;
+
+      if (msg.serverInfo) {
+        log(`Server info found at ${msg.serverInfo.endpoint}`, 'ok');
+        $('inf-srvstatus').textContent = `HTTP ${msg.serverInfo.status}`;
+        $('inf-srvstatus').className = 'info-val good';
+        $('inf-srvep').textContent = msg.serverInfo.endpoint;
+        try {
+          // Try to parse XML or JSON server info
+          const raw = msg.serverInfo.raw;
+          if (raw.includes('<') || raw.includes('{')) {
+            log(`ServerInfo: ${raw.slice(0, 120)}…`, 'data');
+          }
+        } catch {}
+      } else {
+        log(`No /serverinfo endpoint found — may still stream`, 'warn');
+        $('inf-srvstatus').textContent = 'N/A';
+      }
+      break;
+
+    case 'response': {
+      const pending = pendingRequests.get(msg.id);
+      if (!pending) break;
+      pendingRequests.delete(msg.id);
+      if (msg.error) {
+        log(`← ERR [${msg.id}] ${msg.error}`, 'error');
+        pending.reject(new Error(msg.error));
+      } else {
+        log(`← ${msg.status} [${msg.id}]`, msg.status < 400 ? 'data' : 'warn');
+        pending.resolve(msg);
+      }
+      break;
+    }
+
+    // Upstream WS bridging
+    case 'ws_connected':
+      log(`Upstream WS connected: ${msg.url}`, 'ok');
+      window._moonlightWsOpen = true;
+      dispatchToFrame({ type: 'ws_connected' });
+      break;
+
+    case 'ws_message':
+      dispatchToFrame({ type: 'ws_message', data: msg.data });
+      break;
+
+    case 'ws_closed':
+      log(`Upstream WS closed (${msg.code})`, 'warn');
+      window._moonlightWsOpen = false;
+      dispatchToFrame({ type: 'ws_closed', code: msg.code });
+      break;
+
+    case 'ws_error':
+      log(`Upstream WS error: ${msg.message}`, 'error');
+      dispatchToFrame({ type: 'ws_error', message: msg.message });
+      break;
+
+    case 'error':
+      log(`Proxy error: ${msg.message}`, 'error');
+      break;
+  }
+}
+
+// ── Dispatch messages to the iframe ───────────────────────────────
+function dispatchToFrame(msg) {
+  const frame = $('stream-frame');
+  if (frame && frame.contentWindow) {
+    frame.contentWindow.postMessage({ __moonlightProxy: true, ...msg }, '*');
+  }
+}
+
+// ── Load moonlight stream into iframe ─────────────────────────────
+async function loadStream() {
+  if (!connected) return;
+
+  log(`Fetching ${targetOrigin}/...`, 'info');
+  $('btn-load-stream').disabled = true;
+  $('btn-load-stream').textContent = 'Loading…';
+
+  try {
+    const resp = await proxyRequest(targetOrigin + '/', 'GET', { accept: 'text/html' }, null);
+
+    if (resp.status !== 200) {
+      log(`Failed to fetch root page: HTTP ${resp.status}`, 'error');
+      $('btn-load-stream').disabled = false;
+      $('btn-load-stream').textContent = 'Load Stream';
+      return;
+    }
+
+    // Inject our proxy script into the HTML before injecting into the iframe
+    let html = resp.body;
+    const proxyScript = buildProxyScript();
+
+    // Inject right after <head> or at the top
+    const headIdx = html.toLowerCase().indexOf('<head>');
+    if (headIdx !== -1) {
+      html = html.slice(0, headIdx + 6) + `\n<script>${proxyScript}</scr` + `ipt>\n` + html.slice(headIdx + 6);
+    } else {
+      html = `<script>${proxyScript}</scr` + `ipt>` + html;
+    }
+
+    // Also rewrite relative URLs → absolute so the page can request them
+    html = html.replace(/(src|href)=["'](?!http|\/\/|data:|#)([^"']+)["']/gi,
+      (_, attr, path) => `${attr}="${targetOrigin}/${path.replace(/^\//, '')}"`);
+
+    const frame = $('stream-frame');
+    const blob = new Blob([html], { type: 'text/html' });
+    const blobUrl = URL.createObjectURL(blob);
+    frame.src = blobUrl;
+
+    $('idle-overlay').classList.add('hidden');
+    frame.classList.remove('hidden');
+    $('btn-fullscreen').classList.remove('hidden');
+    $('btn-load-stream').textContent = 'Reload';
+    $('btn-load-stream').disabled = false;
+    log(`Stream frame loaded`, 'ok');
+
+  } catch (err) {
+    log(`Load error: ${err.message}`, 'error');
+    $('btn-load-stream').disabled = false;
+    $('btn-load-stream').textContent = 'Load Stream';
+  }
+}
+
+// ── Build the script injected into the iframe ──────────────────────
+// This overrides fetch + XHR + WebSocket inside the iframe to tunnel
+// everything through postMessage → parent → WebSocket proxy
+function buildProxyScript() {
+  return `
+(function() {
+  'use strict';
+  const BASE = ${JSON.stringify(targetOrigin)};
+
+  function resolve(u) {
+    if (!u) return u;
+    if (u.startsWith('http')) return u;
+    if (u.startsWith('//')) return 'https:' + u;
+    return BASE + (u.startsWith('/') ? u : '/' + u);
+  }
+
+  // ── postMessage channel to parent ──────────────────────────────────
+  let _reqId = 0;
+  const _pending = {};
+
+  window.addEventListener('message', e => {
+    const d = e.data;
+    if (!d || !d.__moonlightProxy) return;
+    switch (d.type) {
+      case 'response': {
+        const p = _pending[d.id];
+        if (!p) return;
+        delete _pending[d.id];
+        if (d.error) p.reject(new Error(d.error));
+        else p.resolve(d);
+        break;
+      }
+      case 'ws_connected':
+        _wsDispatch('open', null);
+        break;
+      case 'ws_message':
+        _wsDispatch('message', d.data);
+        break;
+      case 'ws_closed':
+        _wsDispatch('close', d.code);
+        break;
+      case 'ws_error':
+        _wsDispatch('error', d.message);
+        break;
+    }
+  });
+
+  function proxyReq(url, method, headers, body) {
+    return new Promise((resolve, reject) => {
+      const id = 'f' + (++_reqId);
+      _pending[id] = { resolve, reject };
+      parent.postMessage({ __moonlightProxy: true, type: 'request', id, url, method, headers, body }, '*');
+      setTimeout(() => {
+        if (_pending[id]) { delete _pending[id]; reject(new Error('timeout')); }
+      }, 30000);
+    });
+  }
+
+  // ── Override fetch ─────────────────────────────────────────────────
+  const _origFetch = window.fetch;
+  window.fetch = async function(input, init) {
+    const url = resolve(typeof input === 'string' ? input : input.url);
+    const method = (init && init.method) || 'GET';
+    const headers = (init && init.headers) ? Object.fromEntries(
+      init.headers instanceof Headers ? init.headers.entries() : Object.entries(init.headers)
+    ) : {};
+    let body = null;
+    if (init && init.body) {
+      if (typeof init.body === 'string') body = init.body;
+      else {
+        try { body = await new Response(init.body).text(); } catch { body = null; }
+      }
+    }
+
+    try {
+      const resp = await proxyReq(url, method, headers, body);
+      const bodyStr = resp.encoding === 'base64'
+        ? Uint8Array.from(atob(resp.body), c => c.charCodeAt(0))
+        : resp.body;
+      return new Response(bodyStr, {
+        status: resp.status,
+        headers: resp.headers || {}
+      });
+    } catch (err) {
+      throw err;
+    }
+  };
+
+  // ── Override XMLHttpRequest ────────────────────────────────────────
+  const _OrigXHR = window.XMLHttpRequest;
+  window.XMLHttpRequest = function() {
+    const xhr = new _OrigXHR();
+    let _method, _url, _headers = {};
+    const _fake = {
+      readyState: 0, status: 0, statusText: '', responseText: '', response: null,
+      onreadystatechange: null, onload: null, onerror: null, ontimeout: null,
+      open(method, url) { _method = method; _url = resolve(url); _fake.readyState = 1; },
+      setRequestHeader(k, v) { _headers[k] = v; },
+      send(body) {
+        const b = body ? (typeof body === 'string' ? body : null) : null;
+        proxyReq(_url, _method, _headers, b)
+          .then(resp => {
+            _fake.status = resp.status;
+            _fake.statusText = 'OK';
+            _fake.responseText = resp.body;
+            _fake.response = resp.body;
+            _fake.readyState = 4;
+            if (_fake.onreadystatechange) _fake.onreadystatechange();
+            if (_fake.onload) _fake.onload({ target: _fake });
+          })
+          .catch(err => {
+            if (_fake.onerror) _fake.onerror(err);
+          });
+      },
+      abort() {},
+      getResponseHeader(k) { return null; },
+      getAllResponseHeaders() { return ''; },
+      overrideMimeType() {},
+      withCredentials: false,
+    };
+    return _fake;
+  };
+
+  // ── Override WebSocket ─────────────────────────────────────────────
+  let _wsListeners = {};
+  function _wsDispatch(event, data) {
+    const listeners = _wsListeners[event] || [];
+    listeners.forEach(fn => {
+      if (event === 'message') fn({ data });
+      else if (event === 'open') fn({ type: 'open' });
+      else if (event === 'close') fn({ type: 'close', code: data });
+      else fn({ type: event, message: data });
+    });
+  }
+
+  const _OrigWS = window.WebSocket;
+  window.WebSocket = function(url, protocols) {
+    const wsUrl = url.startsWith('ws') ? url : BASE.replace(/^http/, 'ws') + url;
+    parent.postMessage({ __moonlightProxy: true, type: 'ws_connect', url: wsUrl }, '*');
+
+    const fake = {
+      url: wsUrl, readyState: 0,
+      CONNECTING: 0, OPEN: 1, CLOSING: 2, CLOSED: 3,
+      onopen: null, onmessage: null, onclose: null, onerror: null,
+      send(data) {
+        parent.postMessage({ __moonlightProxy: true, type: 'ws_send', data }, '*');
+      },
+      close() {
+        parent.postMessage({ __moonlightProxy: true, type: 'ws_close' }, '*');
+      },
+      addEventListener(event, fn) {
+        if (!_wsListeners[event]) _wsListeners[event] = [];
+        _wsListeners[event].push(fn);
+      },
+      removeEventListener(event, fn) {
+        if (_wsListeners[event]) {
+          _wsListeners[event] = _wsListeners[event].filter(f => f !== fn);
+        }
+      }
+    };
+
+    // Wire onX handlers into the dispatch system
+    _wsListeners.open   = [e => { fake.readyState = 1; if (fake.onopen)    fake.onopen(e);    }];
+    _wsListeners.message= [e => {                       if (fake.onmessage) fake.onmessage(e); }];
+    _wsListeners.close  = [e => { fake.readyState = 3; if (fake.onclose)   fake.onclose(e);   }];
+    _wsListeners.error  = [e => {                       if (fake.onerror)   fake.onerror(e);   }];
+
+    return fake;
+  };
+  window.WebSocket.CONNECTING = 0;
+  window.WebSocket.OPEN       = 1;
+  window.WebSocket.CLOSING    = 2;
+  window.WebSocket.CLOSED     = 3;
+
+  console.log('[moonlight-proxy] fetch + XHR + WebSocket patched');
+})();
+  `;
+}
+
+// ── postMessage relay: iframe → proxy WS ──────────────────────────
+window.addEventListener('message', e => {
+  const d = e.data;
+  if (!d || !d.__moonlightProxy) return;
+
+  switch (d.type) {
+    case 'request':
+      // Forward HTTP request to proxy
+      proxyRequest(d.url, d.method, d.headers, d.body)
+        .then(resp => dispatchToFrame({ ...resp, type: 'response', id: d.id }))
+        .catch(err => dispatchToFrame({ type: 'response', id: d.id, error: err.message }));
+      break;
+    case 'ws_connect':
+      wsSend({ type: 'ws_connect', url: d.url });
+      break;
+    case 'ws_send':
+      wsSend({ type: 'ws_send', data: d.data });
+      break;
+    case 'ws_close':
+      wsSend({ type: 'ws_close' });
+      break;
+  }
+});
+
+// ── Fullscreen ────────────────────────────────────────────────────
+$('btn-fullscreen').onclick = () => {
+  const frame = $('stream-frame');
+  if (frame.requestFullscreen) frame.requestFullscreen();
+};
+
+// ── Wire up buttons ───────────────────────────────────────────────
+$('btn-connect').onclick = connectProxy;
+$('btn-disconnect').onclick = disconnectProxy;
+$('btn-load-stream').onclick = loadStream;
+
+// ── Enter key on inputs ───────────────────────────────────────────
+[$('proxy-url'), $('target-url')].forEach(el => {
+  el.addEventListener('keydown', e => {
+    if (e.key === 'Enter') connectProxy();
+  });
+});
+
+log('Proxy client ready. Enter URLs above and click Connect.', 'info');
+</script>
+</body>
+</html>
