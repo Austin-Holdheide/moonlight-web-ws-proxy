@@ -1,121 +1,110 @@
-# moonlight-web-ws-proxy  v2
+# moonlight-web-ws-proxy
 
-A WebSocket bridge that lets `client.html` (opened as a `file://` page)
-talk to a remote **moonlight-web-stream** server.
+A local HTTP + WebSocket reverse proxy that lets you use [moonlight-web-stream](https://github.com/feldkamp-dev/moonlight-web-stream) from an offline `file://` HTML page.
 
----
+## Why this exists
 
-## How moonlight-web-stream actually works
+Browsers block `file://` pages from making requests to external HTTPS servers (CORS). This proxy runs locally and bridges your browser to a remote moonlight-web-stream server, handling auth cookies, compression, and WebSocket signaling transparently.
+
+## How it works
 
 ```
-  Your Gaming PC
-  ┌──────────────────────────────────────────┐
-  │  Sunshine  (game capture / encoder)      │
-  │  moonlight-web-stream  (Rust, port 8080) │
-  │    ├─ serves SPA frontend at  GET /      │
-  │    ├─ REST API at  /api/...              │
-  │    └─ WebRTC signaling WS at             │
-  │         /api/host/stream                 │
-  └──────────────────────────────────────────┘
-         ↑ HTTP + WS
-  ┌──────────────────┐
-  │  proxy-server.js │  (runs on your local network / same machine)
-  │  Node.js         │
-  └──────────────────┘
-         ↑ WebSocket control channel (ws://localhost:8765)
-  ┌──────────────────┐
-  │  client.html     │  (opened from file://, no web server needed)
-  │  offline browser │
-  └──────────────────┘
+client.html (file://)
+  │
+  └─ WebSocket ──► proxy-server.js :8765
+                        │
+                        ├─ HTTP reverse proxy ──► moon.yourserver.com (all assets, API)
+                        └─ WS bridge ──────────► /api/host/stream (WebRTC signaling)
+
+Stream iframe
+  └─ src="http://localhost:8765/stream.html?hostId=X&appId=Y"
+       │
+       └─ All requests (JS modules, Workers, API, WS) ──► proxy ──► server
 ```
 
-The **actual video/audio** is WebRTC peer-to-peer — it does NOT go through
-this proxy. Only the HTTP API calls and the WebRTC signaling WebSocket are
-proxied.
+The stream iframe is pointed at `http://localhost:8765` rather than a blob URL. This is critical — moonlight-web-stream spawns Web Workers with ES module imports. In a blob URL context those imports resolve to `blob:null/...` and silently fail. With a real HTTP origin they work correctly.
 
----
+## Requirements
 
-## Quick start
+- Node.js 18+
+- `npm install` (installs the `ws` package only)
+- A running moonlight-web-stream server (e.g. at `moon.yourserver.com`)
+
+## Setup
 
 ```bash
-# 1. Install the one dependency
 npm install
-
-# 2. Start the proxy
 node proxy-server.js
-#  → ws://localhost:8765
-
-# 3. Open client.html in your browser (file:// is fine)
-
-# 4. Fill in:
-#    Proxy:             ws://localhost:8765
-#    Moonlight Server:  https://moon.holdheide.com:8080
-#    Click Connect
 ```
 
----
+Then open `client.html` in your browser (double-click it, or drag it to the address bar).
 
-## What the proxy bridges
+## Usage
 
-| Traffic | How |
-|---|---|
-| `GET /` — moonlight SPA HTML | HTTP request through proxy |
-| `GET /api/user/info` — session check | HTTP request through proxy |
-| `POST /api/user/login` — login | HTTP request through proxy |
-| `GET /api/host` — list saved hosts | HTTP request through proxy |
-| `POST /api/host` — add a host | HTTP request through proxy |
-| `GET /api/host/:id/apps` — app list | HTTP request through proxy |
-| `POST /api/host/:id/pair` — pairing | HTTP request through proxy |
-| **`WS /api/host/stream`** — **WebRTC signaling** | **Full WS bridge** |
-| WebRTC A/V data | **Direct peer-to-peer (not proxied)** |
-| Static assets (JS/CSS/images) | HTTP request through proxy |
+1. **Control WS** — leave as `ws://localhost:8765/proxy-control`
+2. **Server** — enter your moonlight-web-stream URL, e.g. `moon.holdheide.com`
+3. Click **Connect**
+4. Log in when prompted (credentials go directly to your server, not stored locally)
+5. Select a host → select an app → stream loads
 
----
+## API surface
 
-## Protocol (proxy ↔ client.html)
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/api/authenticate` | Check session — 200 ok, 401 need login |
+| `POST` | `/api/login` | Body: `{"name":"…","password":"…"}` → sets `mlSession` cookie |
+| `GET` | `/api/user` | Current user info |
+| `GET` | `/api/hosts` | Host list (ndjson streaming) |
+| `GET` | `/api/host?host_id=X` | Single host details |
+| `GET` | `/api/apps?host_id=X` | App list for a host |
+| `GET` | `/api/app/image?host_id=X&app_id=Y&force_refresh=false` | App thumbnail (binary) |
+| `GET` | `/stream.html?hostId=X&appId=Y` | Stream page (loaded in iframe) |
+| `WS` | `/api/host/stream` | WebRTC signaling (auto-bridged by proxy) |
 
-All messages are JSON over the WebSocket.
+## Proxy endpoints
 
-### client → proxy
+| Endpoint | Description |
+|----------|-------------|
+| `http://localhost:8765/*` | HTTP reverse proxy — all requests forwarded to target |
+| `ws://localhost:8765/proxy-control` | Control channel for client.html UI |
+| `ws://localhost:8765/api/host/stream` | Auto-bridged to upstream WS |
+| `http://localhost:8765/proxy-health` | Health check / status JSON |
 
-| `type` | fields | description |
-|---|---|---|
-| `connect` | `url` | Set target origin, probe liveness |
-| `request` | `id, url, method, headers, body` | Proxy HTTP call |
-| `stream_ws_open` | `url, protocols?` | Open `/api/host/stream` WS |
-| `stream_ws_send` | `data, binary` | Send frame upstream |
-| `stream_ws_close` | — | Close upstream WS |
-| `ping` | — | Latency check |
+## Environment variables
 
-### proxy → client
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `PORT` | `8765` | Port to listen on |
 
-| `type` | fields | description |
-|---|---|---|
-| `ready` | `version` | Proxy started |
-| `connected` | `origin, rootStatus, userInfo` | Target reachable |
-| `response` | `id, status, headers, body, encoding` | HTTP response |
-| `stream_ws_open` | — | Upstream WS opened |
-| `stream_ws_message` | `data, binary` | Frame from upstream |
-| `stream_ws_closed` | `code, reason` | Upstream WS closed |
-| `stream_ws_error` | `message` | Upstream WS error |
-| `pong` | `ts` | Ping reply |
-| `error` | `message` | Generic error |
+## File structure
 
----
-
-## Configuration
-
-```bash
-PORT=9000 node proxy-server.js   # change proxy port
+```
+proxy-server.js   — Node.js reverse proxy (one dependency: ws)
+client.html       — Offline UI (works from file://)
+package.json      — { "dependencies": { "ws": "^8.18.0" } }
+README.md         — This file
 ```
 
-If your moonlight server uses a self-signed certificate (common with
-Sunshine's built-in TLS) the proxy accepts it automatically
-(`rejectUnauthorized: false`).
+## Debugging
 
-## Apache reverse proxy note
+The proxy logs every HTTP request and WebSocket event to stdout:
 
-If you're already using Apache to reverse-proxy moonlight-web-stream,
-you don't need this proxy at all — just open the Apache URL directly.
-This proxy is only needed when accessing from an `file://` HTML page that
-cannot make cross-origin requests.
+```
+[HTTP] GET    /stream.html
+[HTTP] GET    /stream.js
+[WS↑] bridging → wss://moon.yourserver.com/api/host/stream
+[WS↑] open
+[🍪] cookie stored: mlSession
+```
+
+If the stream iframe shows a black screen with no console errors, check that the proxy stdout shows the Worker script requests (`/stream/pipeline/worker.js`) — these should appear 6 times as the pipeline initializes.
+
+## Version history
+
+**v1** — Initial attempt. Wrong architecture: assumed moonlight-web-stream was a Sunshine proxy layer.
+
+**v2** — Corrected API surface after reading the actual repo. iframe shim injected into fetched HTML.
+
+**v3** — Fixed zstd compression (all responses were binary garbage). Fixed cookie jar (mlSession not forwarded). Fixed login field name (`name` not `username`).
+
+**v4** — Fixed black screen. Root cause: blob URL iframe breaks Web Worker ES module imports. Solution: full HTTP reverse proxy, iframe pointed at `http://localhost:8765/stream.html` directly. No fetch/XHR/WebSocket shim needed.
