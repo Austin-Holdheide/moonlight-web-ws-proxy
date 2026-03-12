@@ -567,7 +567,7 @@ async function bundleGraph(entryUrl) {
   const order = [], seen = new Set();
   await _pbCollect(entryUrl, order, seen);
   return '(async function(){\n"use strict";\n' +
-    order.map(({url,src}) => `\n/* ${url.split('/').pop()} */\n` + _pbXform(src, url)).join('\n') +
+    order.map(({url,src}) => `\n/* ${url.split('/').pop()} */\n{ ` + _pbXform(src, url) + ' }').join('\n') +
     '\n})();\n';
 }
 
@@ -810,7 +810,7 @@ function _shimCode(BASE, HOST_ID, APP_ID) {
   async function _wBundle(entry){
     var ord=[],seen=new Set();
     await _wCol(entry,ord,seen);
-    return '(async function(){\n'+ord.map(function(x){return '\n/* '+x.url.split('/').pop()+' */\n'+_wXf(x.src,x.url);}).join('\n')+'\n})();\n';
+    return '(async function(){\n'+ord.map(function(x){return '\n/* '+x.url.split('/').pop()+' */\n{ '+_wXf(x.src,x.url)+' }';}).join('\n')+'\n})();\n';
   }
   function _wAbs(u){
     if(/^https?:/.test(u))return u;
